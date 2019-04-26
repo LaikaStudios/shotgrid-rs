@@ -317,6 +317,20 @@ impl Shotgun {
             .and_then(|resp| resp.into_body().concat2())
             .from_err()
             .and_then(|bytes| {
+                // There are three (3) potential failure modes here:
+                //
+                // 1. Connection problems could lead to partial/garbled/non-json payload
+                //    resulting in a json parse error.
+                // 2. The payload could be json, but contain an error message from shotgun about
+                //    the filter.
+                // 3. The payload might parse as valid json, but the json might not fit the
+                //    deserialization target `D`.
+                //
+                // We should aim to model these 3 cases distinctly in our `ShotgunError` variants,
+                // keeping in mind that case 2 might be an error from shotgun unrelated to the
+                // filter. There could be other things for shotgun to complain about.
+
+                // TODO: revise the error handling to model these 3 failure modes.
                 let res = serde_json::from_slice::<D>(&bytes).map_err(ShotgunError::from);
                 if let Err(e) = &res {
                     error!("Failed to parse payload: `{}` - `{:?}`", e, &bytes);
