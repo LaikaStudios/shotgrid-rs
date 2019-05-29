@@ -412,6 +412,7 @@ where
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize)]
 pub enum Entity {
     Asset,
+    Department,
     Group,
     HumanUser,
     Note,
