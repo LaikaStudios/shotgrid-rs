@@ -1,4 +1,6 @@
-# v0.2.0 (Unreleased)
+# Unreleased
+
+# v0.2.0 (2019-05-28)
 
 
 ## Client initialization
