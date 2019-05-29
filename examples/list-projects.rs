@@ -34,7 +34,7 @@ fn main() {
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
     let fut = {
-        let sg = Shotgun::new(server, Some(script_name), Some(script_key)).expect("SG Client");
+        let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
         sg.authenticate_script()
             .and_then(|mut resp: Value| {

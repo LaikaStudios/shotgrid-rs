@@ -21,7 +21,7 @@
 //! ```
 
 extern crate shotgun_rs;
-use serde_json::Value;
+use shotgun_rs::TokenResponse;
 use std::env;
 use tokio::prelude::*;
 
@@ -52,26 +52,22 @@ fn main() {
         sg.authenticate_user(&username, &password)
             // The receiver can use a type hint here to tell the client how to deserialize the
             // response from the server.
-            // For this simple case, we can use a plain `serde_json::Value`.
-            .and_then(|resp: Value| {
-                let pretty_body = serde_json::to_string_pretty(&resp).unwrap();
-
-                match resp.as_object().map(|obj| obj.contains_key("errors")) {
-                    // So long as the body parses as an object and does not contain "errors" the auth
-                    // check probably succeeded.
-                    Some(false) => println!("\nLogin Succeeded:\n{}", pretty_body),
-
-                    // If we find the payload contains an "errors" key, or does not parse as
-                    // an object, report a failure.
-                    _ => eprintln!("\nLogin Failed:\n{}", pretty_body),
-                }
-
+            //
+            // The library provides a struct, `AccessTokenResponse`, which fits the shape of a
+            // successful auth attempt, but you can of course provide your own deserialization
+            // target if you only need a subset of the fields.
+            // For this simple case, we could even use a plain `serde_json::Value`.
+            .and_then(|resp: TokenResponse| {
+                // So long as the body parses as an object and does not contain "errors" the auth
+                // check probably succeeded.
+                println!("\nLogin Succeeded:\n{:?}", resp);
                 Ok(())
             })
             .map_err(|e| {
                 // If the future ended in Err, then something else went bad.
                 // Could be an I/O problem, or the server couldn't respond, time out, malformed or
                 // otherwise non-json response...
+                // ... or the creds could have been bad.
                 eprintln!("\nSomething bad happend:\n{}", e);
             })
     };

@@ -1,6 +1,5 @@
 use futures::future::{self, Future};
 use futures::Stream;
-use reqwest::r#async::Client;
 use std::env;
 use std::fmt;
 use std::fs::File;
@@ -12,23 +11,30 @@ use serde_json::Value;
 #[macro_use]
 extern crate failure;
 use log::{debug, error};
+use reqwest::r#async::{Client, Response};
 use std::borrow::Cow;
 
 /// Get a default http client with ca certs added to it if specified via env var.
-fn get_client() -> Result<Client, failure::Error> {
+fn get_client() -> Result<Client, ShotgunError> {
     let builder = Client::builder();
 
     let builder = if let Ok(fp) = env::var("CA_BUNDLE") {
         debug!("Using ca bundle from: `{}`", fp);
         let mut buf = Vec::new();
-        File::open(fp)?.read_to_end(&mut buf)?;
-        let cert = reqwest::Certificate::from_pem(&buf)?;
+        File::open(fp)
+            .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?
+            .read_to_end(&mut buf)
+            .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?;
+        let cert = reqwest::Certificate::from_pem(&buf)
+            .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?;
         builder.add_root_certificate(cert)
     } else {
         builder
     };
 
-    builder.build().map_err(failure::Error::from)
+    builder
+        .build()
+        .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))
 }
 
 #[allow(dead_code)]
@@ -49,6 +55,22 @@ pub struct Shotgun {
     script_key: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ErrorResponse {
+    errors: Vec<ErrorObject>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ErrorObject {
+    id: Option<String>,
+    status: Option<i64>,
+    code: Option<i64>,
+    title: Option<String>,
+    detail: Option<String>,
+    source: Option<String>,
+    meta: Option<serde_json::Map<String, Value>>,
+}
+
 impl Shotgun {
     /// Create a new Shotgun API Client using all defaults.
     ///
@@ -60,15 +82,15 @@ impl Shotgun {
     /// - `CA_BUNDLE` is set, but the file path it points to is invalid.
     pub fn new(
         sg_server: String,
-        script_name: Option<String>,
-        script_key: Option<String>,
-    ) -> Result<Self, failure::Error> {
+        script_name: Option<&str>,
+        script_key: Option<&str>,
+    ) -> Result<Self, ShotgunError> {
         let client = get_client()?;
         Ok(Self {
             sg_server,
             client,
-            script_name,
-            script_key,
+            script_name: script_name.map(Into::into),
+            script_key: script_key.map(Into::into),
         })
     }
 
@@ -78,15 +100,15 @@ impl Shotgun {
     /// the HTTP client itself.
     pub fn with_client(
         sg_server: String,
-        script_name: Option<String>,
-        script_key: Option<String>,
+        script_name: Option<&str>,
+        script_key: Option<&str>,
         client: Client,
     ) -> Self {
         Self {
             sg_server,
             client,
-            script_name,
-            script_key,
+            script_name: script_name.map(Into::into),
+            script_key: script_key.map(Into::into),
         }
     }
 
@@ -103,8 +125,8 @@ impl Shotgun {
             .form(form_data)
             .header("Accept", "application/json")
             .send()
-            .and_then(|mut resp| resp.json::<D>())
             .from_err()
+            .and_then(handle_response)
     }
 
     /// Run a credential (human user logging in) challenge.
@@ -165,8 +187,8 @@ impl Shotgun {
             .header("Accept", "application/json")
             .json(&data)
             .send()
-            .and_then(|mut resp| resp.json::<D>())
             .from_err()
+            .and_then(handle_response)
     }
 
     /// Read the data for a single entity.
@@ -195,7 +217,7 @@ impl Shotgun {
             req = req.query(&[("fields", fields)]);
         }
 
-        req.send().and_then(|mut resp| resp.json::<D>()).from_err()
+        req.send().from_err().and_then(handle_response)
     }
 
     /// Modify an existing entity.
@@ -221,8 +243,8 @@ impl Shotgun {
             .header("Accept", "application/json")
             .json(&data)
             .send()
-            .and_then(|mut resp| resp.json::<D>())
             .from_err()
+            .and_then(handle_response)
     }
 
     /// Destroy (delete) an entity.
@@ -232,16 +254,24 @@ impl Shotgun {
         entity: Entity,
         id: i32,
     ) -> impl Future<Item = (), Error = ShotgunError> {
+        let url = format!("{}/api/v1/entity/{}/{}", self.sg_server, entity, id,);
         self.client
-            .delete(&format!(
-                "{}/api/v1/entity/{}/{}",
-                self.sg_server, entity, id,
-            ))
+            .delete(&url)
             .bearer_auth(token)
             .header("Accept", "application/json")
             .send()
             .from_err()
-            .and_then(|_| Ok(()))
+            .and_then(move |resp| {
+                if resp.status().is_success() {
+                    Ok(())
+                } else {
+                    Err(ShotgunError::Unexpected(format!(
+                        "Server responded to `DELETE {}` with `{}`",
+                        &url,
+                        resp.status()
+                    )))
+                }
+            })
     }
 
     /// Find a list of entities matching some filter criteria.
@@ -314,30 +344,69 @@ impl Shotgun {
             .query(&qs)
             .body(filters.to_string())
             .send()
-            .and_then(|resp| resp.into_body().concat2())
             .from_err()
-            .and_then(|bytes| {
-                // There are three (3) potential failure modes here:
-                //
-                // 1. Connection problems could lead to partial/garbled/non-json payload
-                //    resulting in a json parse error.
-                // 2. The payload could be json, but contain an error message from shotgun about
-                //    the filter.
-                // 3. The payload might parse as valid json, but the json might not fit the
-                //    deserialization target `D`.
-                //
-                // We should aim to model these 3 cases distinctly in our `ShotgunError` variants,
-                // keeping in mind that case 2 might be an error from shotgun unrelated to the
-                // filter. There could be other things for shotgun to complain about.
-
-                // TODO: revise the error handling to model these 3 failure modes.
-                let res = serde_json::from_slice::<D>(&bytes).map_err(ShotgunError::from);
-                if let Err(e) = &res {
-                    error!("Failed to parse payload: `{}` - `{:?}`", e, &bytes);
-                }
-                res
-            })
+            .and_then(handle_response)
     }
+}
+
+/// Checks to see if the `Value` is an object with a top level "errors" key.
+fn contains_errors(value: &Value) -> bool {
+    value
+        .as_object()
+        .and_then(|obj| Some(obj.contains_key("errors")))
+        .unwrap_or(false)
+}
+
+/// Converts a response body from shotgun into something more meaningful.
+///
+/// There are a handful of ways requests can be fulfilled:
+///
+/// - Good! _You got a payload that matches your expected shape_.
+/// - Bad! _The payload is legit, but doesn't conform to your expectations_.
+/// - More Bad! _The request you sent didn't make sense to shotgun, so shotgun replied
+///   with some error details_.
+/// - Really Bad! _The response was total garbage; can't even be parsed as json_.
+///
+/// This function aims to cover converting the raw body into either the shape you requested, or an
+/// Error with some details about what went wrong if your shape doesn't fit, or any of that other
+/// stuff happened.
+fn handle_response<D>(resp: Response) -> impl Future<Item = D, Error = ShotgunError>
+where
+    D: DeserializeOwned,
+{
+    resp.into_body().concat2().from_err().and_then(|bytes| {
+        // There are three (3) potential failure modes here:
+        //
+        // 1. Connection problems could lead to partial/garbled/non-json payload
+        //    resulting in a json parse error.
+        // 2. The payload could be json, but contain an error message from shotgun about
+        //    the filter.
+        // 3. The payload might parse as valid json, but the json might not fit the
+        //    deserialization target `D`.
+        let res: Result<D, ShotgunError> = match serde_json::from_slice::<Value>(&bytes) {
+            Err(e) => {
+                // case 1 - non-valid json
+                error!("Failed to parse payload: `{}` - `{:?}`", e, &bytes);
+                // if we can't parse the json at all, bail as-is
+                Err(ShotgunError::from(e))
+            }
+            Ok(v) => {
+                if contains_errors(&v) {
+                    // case 2 - shotgun response has error feedback.
+                    match serde_json::from_value::<ErrorResponse>(v) {
+                        Ok(resp) => Err(ShotgunError::ServerError(resp.errors)),
+                        // also, a non-valid json/shape sub-case if the response doesn't
+                        // look as expected.
+                        Err(err) => Err(ShotgunError::from(err)),
+                    }
+                } else {
+                    // case 3 - either we get the shape we want or we get an error
+                    serde_json::from_value::<D>(v).map_err(ShotgunError::from)
+                }
+            }
+        };
+        res
+    })
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize)]
@@ -491,6 +560,9 @@ pub enum ShotgunError {
 
     #[fail(display = "Unexpected Error - `{}`", _0)]
     Unexpected(String),
+
+    #[fail(display = "Server Error - `{:?}`", _0)]
+    ServerError(Vec<ErrorObject>),
 }
 
 impl From<serde_json::Error> for ShotgunError {
@@ -498,16 +570,20 @@ impl From<serde_json::Error> for ShotgunError {
         ShotgunError::JsonParse(e)
     }
 }
+
 impl From<reqwest::Error> for ShotgunError {
     fn from(e: reqwest::Error) -> Self {
         ShotgunError::ClientError(e)
     }
 }
 
+/// Response from Shotgun after a successful auth challenge.
 #[derive(Debug, Deserialize, Clone)]
-pub struct ShotgunAuthenticationResponse {
+pub struct TokenResponse {
+    pub token_type: String,
     pub access_token: String,
-    pub expires_in: i32,
+    pub expires_in: i64,
+    pub refresh_token: String,
 }
 
 #[cfg(test)]
