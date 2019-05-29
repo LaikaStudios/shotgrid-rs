@@ -1,6 +1,6 @@
-# Unreleased
+# 0.3.0-alpha (Unreleased)
 
-# v0.2.0 (2019-05-28)
+# [v0.2.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.1.0...v0.2.0) (2019-05-28)
 
 
 ## Client initialization
