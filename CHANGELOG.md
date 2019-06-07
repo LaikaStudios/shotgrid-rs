@@ -1,5 +1,9 @@
 # (Unreleased)
 
+- Added `Shotgun::schema_read()` to do a read of all entities for a given
+  (optional) project.
+
+
 # [v0.2.2](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.2.1...v0.2.2) (2019-06-07)
 
 - Added `Shotgun::authenticate_script_as_user()` to "sudo as" a given user while still

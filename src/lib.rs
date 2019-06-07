@@ -196,6 +196,26 @@ impl Shotgun {
         }
     }
 
+    pub fn schema_read<D: 'static>(
+        &self,
+        token: &str,
+        project_id: Option<i32>,
+    ) -> impl Future<Item = D, Error = ShotgunError>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!("{}/api/v1/schema", self.sg_server))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(id) = project_id {
+            req = req.query(&[("project_id", id)]);
+        }
+        req.send().from_err().and_then(handle_response)
+    }
+
     /// Create a new entity.
     ///
     /// The `data` field is used the request body, and as such should be an object where the keys
@@ -370,6 +390,10 @@ impl Shotgun {
             .header("Accept", "application/json")
             .bearer_auth(token)
             .query(&qs)
+            // XXX: the content type is being set to shotgun's custom mime types
+            //   to indicate the shape of the filter payload. Do not be tempted to use
+            //   `.json()` here instead of `.body()` or you'll end up reverting the
+            //   header set above.
             .body(filters.to_string())
             .send()
             .from_err()
