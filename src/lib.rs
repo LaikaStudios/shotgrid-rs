@@ -168,6 +168,34 @@ impl Shotgun {
         }
     }
 
+    /// The same as `authenticate_script()` except it also allows you to pass a username
+    /// to "sudo" as.
+    ///
+    /// This function relies on the script key and name fields being set and will fail with a
+    /// `ShotgunError::BadClientConfig` if either is missing.
+    pub fn authenticate_script_as_user<D: 'static>(
+        &self,
+        login: &str,
+    ) -> impl Future<Item = D, Error = ShotgunError>
+    where
+        D: DeserializeOwned,
+    {
+        if let (Some(script_name), Some(script_key)) =
+            (self.script_name.as_ref(), self.script_key.as_ref())
+        {
+            future::Either::A(self.authenticate(&[
+                ("grant_type", "client_credentials"),
+                ("client_id", &script_name),
+                ("client_secret", &script_key),
+                ("scope", &format!("sudo_as_login:{}", login)),
+            ]))
+        } else {
+            future::Either::B(future::err(ShotgunError::BadClientConfig(
+                "Missing script name or key.".into(),
+            )))
+        }
+    }
+
     /// Create a new entity.
     ///
     /// The `data` field is used the request body, and as such should be an object where the keys
