@@ -348,6 +348,12 @@ impl Shotgun {
     where
         D: DeserializeOwned,
     {
+        // TODO: the type of the filter can be determined without the caller
+        //   having to specify it with the enum. If we receive a `Value` we
+        //   can test the filters key to see if it's an array or object or
+        //   "unexpected."
+        //   Appropriate error types should be returned immediately in the
+        //   unexpected case.
         let (filters, content_type) = match filters {
             Filters::Array(v) => (v, "application/vnd+shotgun.api3_array+json"),
             Filters::Hash(v) => (v, "application/vnd+shotgun.api3_hash+json"),
