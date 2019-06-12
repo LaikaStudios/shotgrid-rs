@@ -1,5 +1,15 @@
 # (Unreleased)
 
+# [v0.3.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.2.2...v0.3.0) (2019-06-11)
+
+- Removed `Entity` enum in favor of plain `&str`. _Feel free to manage enums
+  for these in your application code as needed._
+- `search()` now accepts a plain `&serde_json::Value` instead of requiring the
+  caller to wrap one in the `Filters` enum.
+- Removed `Filters` enum in favor of looking at the shape of the `filters`
+  json payload.
+- Added `ShotgunError::InvalidFilters`, returned by `search()` when the
+  `"filters"` key in the `filters` json is not either an array or object.
 - Added `Shotgun::schema_read()` to do a read of all entities for a given
   (optional) project.
 

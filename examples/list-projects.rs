@@ -24,7 +24,7 @@
 extern crate prettytable;
 use prettytable::{format, Table};
 use serde_json::{json, Value};
-use shotgun_rs::{Entity, Filters, Shotgun};
+use shotgun_rs::Shotgun;
 use std::env;
 use tokio::prelude::*;
 
@@ -44,9 +44,9 @@ fn main() {
             .and_then(move |token: String| {
                 sg.search(
                     &token,
-                    Entity::Project,
+                    "Project",
                     "id,code,name",
-                    Filters::Array(&json!({ "filters": [] })),
+                    &json!({ "filters": [] }),
                     None,
                     None,
                     None,

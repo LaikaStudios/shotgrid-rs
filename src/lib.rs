@@ -1,7 +1,6 @@
 use futures::future::{self, Future};
 use futures::Stream;
 use std::env;
-use std::fmt;
 use std::fs::File;
 use std::io::Read;
 #[macro_use]
@@ -37,11 +36,16 @@ fn get_client() -> Result<Client, ShotgunError> {
         .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))
 }
 
-#[allow(dead_code)]
-pub enum Filters<'a> {
-    // TODO: specialize the value types to object/array?
-    Array(&'a Value),
-    Hash(&'a Value),
+fn get_filter_mime(filters: &Value) -> Result<&'static str, ShotgunError> {
+    let maybe_filters = filters.get("filters");
+
+    if maybe_filters.map(|v| v.is_array()) == Some(true) {
+        Ok("application/vnd+shotgun.api3_array+json")
+    } else if maybe_filters.map(|v| v.is_object()) == Some(true) {
+        Ok("application/vnd+shotgun.api3_hash+json")
+    } else {
+        Err(ShotgunError::InvalidFilters)
+    }
 }
 
 pub struct Shotgun {
@@ -223,7 +227,7 @@ impl Shotgun {
     pub fn create<D: 'static>(
         &self,
         token: &str,
-        entity: Entity,
+        entity: &str,
         data: Value,
     ) -> impl Future<Item = D, Error = ShotgunError>
     where
@@ -245,7 +249,7 @@ impl Shotgun {
     pub fn read<D: 'static>(
         &self,
         token: &str,
-        entity: Entity,
+        entity: &str,
         id: i32,
         fields: Option<&str>,
     ) -> impl Future<Item = D, Error = ShotgunError>
@@ -275,7 +279,7 @@ impl Shotgun {
     fn update<D: 'static>(
         &self,
         token: &str,
-        entity: Entity,
+        entity: &str,
         id: i32,
         data: Value,
     ) -> impl Future<Item = D, Error = ShotgunError>
@@ -299,7 +303,7 @@ impl Shotgun {
     pub fn destroy(
         &self,
         token: &str,
-        entity: Entity,
+        entity: &str,
         id: i32,
     ) -> impl Future<Item = (), Error = ShotgunError> {
         let url = format!("{}/api/v1/entity/{}/{}", self.sg_server, entity, id,);
@@ -338,9 +342,9 @@ impl Shotgun {
     pub fn search<D: 'static>(
         &self,
         token: &str,
-        entity: Entity,
+        entity: &str,
         fields: &str,
-        filters: Filters,
+        filters: &Value,
         sort: Option<String>,
         page_size: Option<usize>,
         options: Option<OptionsParameter>,
@@ -348,15 +352,10 @@ impl Shotgun {
     where
         D: DeserializeOwned,
     {
-        // TODO: the type of the filter can be determined without the caller
-        //   having to specify it with the enum. If we receive a `Value` we
-        //   can test the filters key to see if it's an array or object or
-        //   "unexpected."
-        //   Appropriate error types should be returned immediately in the
-        //   unexpected case.
-        let (filters, content_type) = match filters {
-            Filters::Array(v) => (v, "application/vnd+shotgun.api3_array+json"),
-            Filters::Hash(v) => (v, "application/vnd+shotgun.api3_hash+json"),
+        let content_type = match get_filter_mime(filters) {
+            // early return if the filters are bogus and fail the sniff test
+            Err(e) => return future::Either::A(future::err(e)),
+            Ok(mime) => mime,
         };
 
         let mut qs: Vec<(&str, Cow<str>)> = vec![("fields", Cow::Borrowed(fields))];
@@ -387,7 +386,8 @@ impl Shotgun {
             }
         }
 
-        self.client
+        let f = self
+            .client
             .post(&format!(
                 "{}/api/v1/entity/{}/_search",
                 self.sg_server, entity
@@ -403,7 +403,8 @@ impl Shotgun {
             .body(filters.to_string())
             .send()
             .from_err()
-            .and_then(handle_response)
+            .and_then(handle_response);
+        future::Either::B(f)
     }
 }
 
@@ -467,129 +468,6 @@ where
     })
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize)]
-pub enum Entity {
-    Asset,
-    Department,
-    Group,
-    HumanUser,
-    Note,
-    NoteLink,
-    Project,
-    Reply,
-    Shot,
-    Task,
-    Version,
-    // ... more to come ...
-    CustomEntity01,
-    CustomEntity02,
-    CustomEntity03,
-    CustomEntity04,
-    CustomEntity05,
-    CustomEntity06,
-    CustomEntity07,
-    CustomEntity08,
-    CustomEntity09,
-    CustomEntity10,
-    CustomEntity11,
-    CustomEntity12,
-    CustomEntity13,
-    CustomEntity14,
-    CustomEntity15,
-    CustomEntity16,
-    CustomEntity17,
-    CustomEntity18,
-    CustomEntity19,
-    CustomEntity20,
-    CustomEntity21,
-    CustomEntity22,
-    CustomEntity23,
-    CustomEntity24,
-    CustomEntity25,
-    CustomEntity26,
-    CustomEntity27,
-    CustomEntity28,
-    CustomEntity29,
-    CustomEntity30,
-    CustomEntity31,
-    CustomEntity32,
-    CustomEntity33,
-    CustomEntity34,
-    CustomEntity35,
-    CustomEntity36,
-    CustomEntity37,
-    CustomEntity38,
-    CustomEntity39,
-    CustomEntity40,
-    CustomEntity41,
-    CustomEntity42,
-    CustomEntity43,
-    CustomEntity44,
-    CustomEntity45,
-    CustomEntity46,
-    CustomEntity47,
-    CustomEntity48,
-    CustomEntity49,
-    CustomEntity50,
-
-    CustomNonProjectEntity01,
-    CustomNonProjectEntity02,
-    CustomNonProjectEntity03,
-    CustomNonProjectEntity04,
-    CustomNonProjectEntity05,
-    CustomNonProjectEntity06,
-    CustomNonProjectEntity07,
-    CustomNonProjectEntity08,
-    CustomNonProjectEntity09,
-    CustomNonProjectEntity10,
-    CustomNonProjectEntity11,
-    CustomNonProjectEntity12,
-    CustomNonProjectEntity13,
-    CustomNonProjectEntity14,
-    CustomNonProjectEntity15,
-    CustomNonProjectEntity16,
-    CustomNonProjectEntity17,
-    CustomNonProjectEntity18,
-    CustomNonProjectEntity19,
-    CustomNonProjectEntity20,
-    CustomNonProjectEntity21,
-    CustomNonProjectEntity22,
-    CustomNonProjectEntity23,
-    CustomNonProjectEntity24,
-    CustomNonProjectEntity25,
-    CustomNonProjectEntity26,
-    CustomNonProjectEntity27,
-    CustomNonProjectEntity28,
-    CustomNonProjectEntity29,
-    CustomNonProjectEntity30,
-    CustomNonProjectEntity31,
-    CustomNonProjectEntity32,
-    CustomNonProjectEntity33,
-    CustomNonProjectEntity34,
-    CustomNonProjectEntity35,
-    CustomNonProjectEntity36,
-    CustomNonProjectEntity37,
-    CustomNonProjectEntity38,
-    CustomNonProjectEntity39,
-    CustomNonProjectEntity40,
-    CustomNonProjectEntity41,
-    CustomNonProjectEntity42,
-    CustomNonProjectEntity43,
-    CustomNonProjectEntity44,
-    CustomNonProjectEntity45,
-    CustomNonProjectEntity46,
-    CustomNonProjectEntity47,
-    CustomNonProjectEntity48,
-    CustomNonProjectEntity49,
-    CustomNonProjectEntity50,
-}
-
-impl fmt::Display for Entity {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
 pub enum ReturnOnly {
     Active,
     Retired,
@@ -604,6 +482,11 @@ pub struct OptionsParameter {
 pub enum ShotgunError {
     #[fail(display = "Client Configuration Error: `{}`.", _0)]
     BadClientConfig(String),
+
+    #[fail(
+        display = "Invalid Filters: expected `filters` key to be array or object; was neither."
+    )]
+    InvalidFilters,
 
     #[fail(display = "JSON Parse Error: `{}`.", _0)]
     ClientError(#[fail(cause)] reqwest::Error),
@@ -643,18 +526,4 @@ pub struct TokenResponse {
     pub access_token: String,
     pub expires_in: i64,
     pub refresh_token: String,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_entity_display() {
-        assert_eq!(&format!("{}", Entity::HumanUser), "HumanUser");
-        assert_eq!(&format!("{}", Entity::Note), "Note");
-        assert_eq!(&format!("{}", Entity::Project), "Project");
-        assert_eq!(&format!("{}", Entity::Reply), "Reply");
-        assert_eq!(&format!("{}", Entity::Shot), "Shot");
-    }
 }
