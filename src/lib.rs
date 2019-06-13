@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 #[macro_use]
 extern crate failure;
-use log::{debug, error};
+use log::{debug, error, trace};
 use reqwest::r#async::{Client, Response};
 use std::borrow::Cow;
 
@@ -71,7 +71,7 @@ pub struct ErrorObject {
     code: Option<i64>,
     title: Option<String>,
     detail: Option<String>,
-    source: Option<String>,
+    source: Option<serde_json::Map<String, Value>>,
     meta: Option<serde_json::Map<String, Value>>,
 }
 
@@ -451,6 +451,7 @@ where
             }
             Ok(v) => {
                 if contains_errors(&v) {
+                    trace!("Got error response from shotgun:\n{}", &v.to_string());
                     // case 2 - shotgun response has error feedback.
                     match serde_json::from_value::<ErrorResponse>(v) {
                         Ok(resp) => Err(ShotgunError::ServerError(resp.errors)),
