@@ -1,5 +1,12 @@
 # (Unreleased)
 
+
+
+# [v0.3.1](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.3.0...v0.3.1) (2019-06-13)
+
+- Fixed issue where shotgun error payloads might not be correctly parsed and
+  returned as a `ShotgunError::ServerError`.
+
 # [v0.3.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.2.2...v0.3.0) (2019-06-11)
 
 - Removed `Entity` enum in favor of plain `&str`. _Feel free to manage enums
