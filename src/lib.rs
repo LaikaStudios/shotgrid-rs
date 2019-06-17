@@ -276,7 +276,7 @@ impl Shotgun {
     ///
     /// `data` is used as the request body and as such should be an object with keys and values
     /// corresponding to the fields on the given entity.
-    fn update<D: 'static>(
+    pub fn update<D: 'static>(
         &self,
         token: &str,
         entity: &str,
