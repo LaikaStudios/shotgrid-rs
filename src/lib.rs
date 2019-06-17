@@ -66,13 +66,13 @@ struct ErrorResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct ErrorObject {
-    id: Option<String>,
-    status: Option<i64>,
-    code: Option<i64>,
-    title: Option<String>,
-    detail: Option<String>,
-    source: Option<serde_json::Map<String, Value>>,
-    meta: Option<serde_json::Map<String, Value>>,
+    pub id: Option<String>,
+    pub status: Option<i64>,
+    pub code: Option<i64>,
+    pub title: Option<String>,
+    pub detail: Option<String>,
+    pub source: Option<serde_json::Map<String, Value>>,
+    pub meta: Option<serde_json::Map<String, Value>>,
 }
 
 impl Shotgun {
@@ -454,7 +454,20 @@ where
                     trace!("Got error response from shotgun:\n{}", &v.to_string());
                     // case 2 - shotgun response has error feedback.
                     match serde_json::from_value::<ErrorResponse>(v) {
-                        Ok(resp) => Err(ShotgunError::ServerError(resp.errors)),
+                        Ok(resp) => {
+                            let maybe_not_found = resp
+                                .errors
+                                .iter()
+                                .find(|ErrorObject { status, .. }| status == &Some(404));
+
+                            if let Some(ErrorObject { detail, .. }) = maybe_not_found {
+                                Err(ShotgunError::NotFound(
+                                    detail.clone().unwrap_or_else(|| "".into()),
+                                ))
+                            } else {
+                                Err(ShotgunError::ServerError(resp.errors))
+                            }
+                        }
                         // also, a non-valid json/shape sub-case if the response doesn't
                         // look as expected.
                         Err(err) => Err(ShotgunError::from(err)),

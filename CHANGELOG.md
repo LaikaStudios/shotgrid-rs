@@ -1,6 +1,12 @@
 # (Unreleased)
 
 
+# [v0.3.2](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.3.1...v0.3.2) (2019-06-14)
+
+- 404 status returns from shotgun are now returned as `ShotgunError::NotFound`
+  instead of `ShotgunError::ServerError.
+- Fields on `shotgun_rs::ErrorObject` are now public so callers can inspect
+  them as needed.
 
 # [v0.3.1](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.3.0...v0.3.1) (2019-06-13)
 
