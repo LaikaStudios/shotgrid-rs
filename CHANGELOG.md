@@ -1,5 +1,9 @@
 # (Unreleased)
 
+# [v0.3.4](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.3.4...v0.3.4) (2019-06-19)
+
+- Added `Shotgun::text_search()` to do a search of entities that match a given text value.
+
 # [v0.3.3](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.3.2...v0.3.3) (2019-06-17)
 
 - Marks `Shotgun::update()` public so it can be used by callers.
