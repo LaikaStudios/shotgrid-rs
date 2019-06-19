@@ -406,6 +406,33 @@ impl Shotgun {
             .and_then(handle_response);
         future::Either::B(f)
     }
+
+    /// Search for entities of the given type(s) and returns a list of basic entity data
+    /// that fits the search. Rich filters can be used to narrow down searches to entities
+    /// that match the filters.
+    ///
+    /// For details on the filter syntax, please refer to the docs:
+    ///
+    /// https://developer.shotgunsoftware.com/rest-api/#search-text-entries
+    ///
+    pub fn text_search<D: 'static>(
+        &self,
+        token: &str,
+        filters: &Value,
+    ) -> impl Future<Item = D, Error = ShotgunError>
+    where
+        D: DeserializeOwned,
+    {
+        self.client
+            .post(&format!("{}/api/v1/entity/_text_search", self.sg_server))
+            .header("Content-Type", "application/vnd+shotgun.api3_array+json")
+            .header("Accept", "application/json")
+            .bearer_auth(token)
+            .body(filters.to_string())
+            .send()
+            .from_err()
+            .and_then(handle_response)
+    }
 }
 
 /// Checks to see if the `Value` is an object with a top level "errors" key.
