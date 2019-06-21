@@ -1,5 +1,18 @@
 # (Unreleased)
 
+# [v0.4.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.3.4...v0.4.0) (2019-06-21)
+
+### Breaking Changes
+
+- Updated `search` and `text_search` to receive the new `PaginationParameter` struct
+  to configure pagination for the given request.
+
+### Additional
+
+- `reqwest::async::Client` (used internally as the http transport) is now
+  re-exported allowing users who need to configure their client to do so
+  without adding an extra dependency on `reqwest`.
+
 # [v0.3.4](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.3.3...v0.3.4) (2019-06-19)
 
 - Added `Shotgun::text_search()` to do a search of entities that match a given text value.

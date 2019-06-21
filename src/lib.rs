@@ -6,11 +6,17 @@ use std::io::Read;
 #[macro_use]
 extern crate serde_derive;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{json, Value};
 #[macro_use]
 extern crate failure;
 use log::{debug, error, trace};
-use reqwest::r#async::{Client, Response};
+/// This client represents the the http transport layer used by `Shotgun`.
+///
+/// Should you need to manually configure your client, you can do so then
+/// initialize your Shotgun instance via `Shotgun::with_client()`.
+pub use reqwest::r#async::Client;
+use reqwest::r#async::Response;
+
 use std::borrow::Cow;
 
 /// Get a default http client with ca certs added to it if specified via env var.
@@ -340,31 +346,46 @@ impl Shotgun {
     /// https://developer.shotgunsoftware.com/rest-api/#searching
     ///
     pub fn search<D: 'static>(
+        // FIXME: many parameters here can often be ignored. Switch to builder pattern.
         &self,
         token: &str,
         entity: &str,
         fields: &str,
         filters: &Value,
         sort: Option<String>,
-        page_size: Option<usize>,
+        pagination: Option<PaginationParameter>,
         options: Option<OptionsParameter>,
     ) -> impl Future<Item = D, Error = ShotgunError>
     where
         D: DeserializeOwned,
     {
+        let pagination = pagination
+            .or_else(|| Some(PaginationParameter::default()))
+            .unwrap();
+
         let content_type = match get_filter_mime(filters) {
             // early return if the filters are bogus and fail the sniff test
             Err(e) => return future::Either::A(future::err(e)),
             Ok(mime) => mime,
         };
 
-        let mut qs: Vec<(&str, Cow<str>)> = vec![("fields", Cow::Borrowed(fields))];
+        let mut qs: Vec<(&str, Cow<str>)> = vec![
+            ("fields", Cow::Borrowed(fields)),
+            ("page[number]", Cow::Owned(format!("{}", pagination.number))),
+        ];
+
+        // The page size is optional so we don't have to hard code
+        // shotgun's *current* default of 500 into the library.
+        //
+        // If/when shotgun changes their default, folks who haven't
+        // specified a page size should get whatever shotgun says, not *our*
+        // hard-coded default.
+        if let Some(size) = pagination.size {
+            qs.push(("page[size]", Cow::Owned(format!("{}", size))));
+        }
 
         if let Some(sort) = sort {
             qs.push(("sort", Cow::Owned(sort)));
-        }
-        if let Some(page_size) = page_size {
-            qs.push(("page[size]", Cow::Owned(format!("{}", page_size))));
         }
 
         if let Some(opts) = options {
@@ -392,10 +413,10 @@ impl Shotgun {
                 "{}/api/v1/entity/{}/_search",
                 self.sg_server, entity
             ))
-            .header("Content-Type", content_type)
+            .query(&qs)
             .header("Accept", "application/json")
             .bearer_auth(token)
-            .query(&qs)
+            .header("Content-Type", content_type)
             // XXX: the content type is being set to shotgun's custom mime types
             //   to indicate the shape of the filter payload. Do not be tempted to use
             //   `.json()` here instead of `.body()` or you'll end up reverting the
@@ -419,10 +440,22 @@ impl Shotgun {
         &self,
         token: &str,
         filters: &Value,
+        pagination: Option<PaginationParameter>,
     ) -> impl Future<Item = D, Error = ShotgunError>
     where
         D: DeserializeOwned,
     {
+        let pagination = pagination
+            .or_else(|| Some(PaginationParameter::default()))
+            .unwrap();
+
+        //
+        let mut filters = filters.clone();
+        {
+            let map = filters.as_object_mut().unwrap();
+            map.insert("page".to_string(), json!(pagination));
+        }
+
         self.client
             .post(&format!("{}/api/v1/entity/_text_search", self.sg_server))
             .header("Content-Type", "application/vnd+shotgun.api3_array+json")
@@ -517,6 +550,24 @@ pub enum ReturnOnly {
 pub struct OptionsParameter {
     pub return_only: Option<ReturnOnly>,
     pub include_archived_projects: Option<bool>,
+}
+
+/// This controls the paging of search-style list API calls.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PaginationParameter {
+    ///  Pages start at 1, not 0.
+    pub number: usize,
+    /// Shotgun's default currently is 500
+    pub size: Option<usize>,
+}
+
+impl Default for PaginationParameter {
+    fn default() -> Self {
+        Self {
+            number: 1,
+            size: None,
+        }
+    }
 }
 
 #[derive(Fail, Debug)]

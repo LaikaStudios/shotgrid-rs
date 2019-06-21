@@ -19,11 +19,11 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example schema-read [project_id]
+//! $ cargo run --example text-search <asset name to search for> [limit]
 //! ```
 
 use serde_json::{json, Value};
-use shotgun_rs::Shotgun;
+use shotgun_rs::{PaginationParameter, Shotgun};
 use std::env;
 use tokio::prelude::*;
 
@@ -31,6 +31,17 @@ fn main() {
     let server = env::var("SG_SERVER").expect("SG_SERVER is required var.");
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
+
+    let mut args = std::env::args().skip(1);
+
+    let text: String = args.next().expect("search text required");
+    let limit: Option<usize> = args
+        .next()
+        .map(|s| s.parse().expect("limit must be a number"));
+    let page_req = PaginationParameter {
+        number: 1,
+        size: limit,
+    };
 
     let fut = {
         let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
@@ -44,11 +55,12 @@ fn main() {
                 sg.text_search(
                     &token,
                     &json!({
-                        "text": "Ted",
+                        "text": &text,
                         "entity_types": {
                             "Asset": [["sg_status_list", "is_not", "omt"]]
                         },
                     }),
+                    Some(page_req),
                 )
                 .and_then(|resp: Value| {
                     println!("{}", serde_json::to_string_pretty(&resp).unwrap());
