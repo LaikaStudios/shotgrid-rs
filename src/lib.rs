@@ -558,6 +558,7 @@ pub struct PaginationParameter {
     ///  Pages start at 1, not 0.
     pub number: usize,
     /// Shotgun's default currently is 500
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<usize>,
 }
 
