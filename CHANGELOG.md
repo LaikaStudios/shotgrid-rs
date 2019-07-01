@@ -1,6 +1,6 @@
 # (Unreleased)
 
-# [v0.4.1](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.4.0...v0.4.1) (2019-07-01)
+# [v0.5.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.4.0...v0.5.0) (2019-07-01)
 
 - Added `schema_fields_read` to read an entity's entire schema.
 - Added `schema_field_read` to read an entity's single field schema.
