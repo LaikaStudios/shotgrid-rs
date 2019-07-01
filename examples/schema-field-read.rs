@@ -1,4 +1,4 @@
-//! Small example program that prints out the list of entity types for a given project.
+//! Small example program that prints out the schema for a field on an entity for a given project.
 //!
 //! For this to work you must set 3 env
 //! vars, `SG_SERVER`, `SG_SCRIPT_NAME`, and `SG_SCRIPT_KEY`.
@@ -19,7 +19,7 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example schema-read [project_id]
+//! $ cargo run --example schema-field-read [project_id] 'task' 'sg_status_list'
 //! ```
 
 use serde_json::Value;
@@ -35,8 +35,13 @@ fn main() {
     let project_id: Option<i32> = env::args()
         .skip(1)
         .next()
-        .and_then(|s| Some(s.parse().expect("proj id")));
+        .and_then(|s| Some(s.parse().expect("Project ID")));
 
+    let entity: Option<String> = env::args().skip(2).next().and_then(|s| Some(s));
+
+    let field_name: Option<String> = env::args().skip(3).next().and_then(|s| Some(s));
+
+    println!("Attempting to read {:?} on {:?}", field_name, entity);
     let fut = {
         let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
@@ -46,13 +51,13 @@ fn main() {
                 Ok(val.as_str().unwrap().to_string())
             })
             .and_then(move |token: String| {
-                sg.schema_read(&token, project_id).and_then(|resp: Value| {
-                    for key in resp["data"].as_object().expect("response decode").keys() {
-                        println!("{}", key);
-                    }
-
-                    Ok(())
-                })
+                sg.schema_field_read(&token, project_id, &entity.unwrap(), &field_name.unwrap())
+                    .and_then(|resp: Value| {
+                        for key in resp["data"].as_object().expect("response decode").keys() {
+                            println!("{}: {}", key, resp["data"][key]);
+                        }
+                        Ok(())
+                    })
             })
             .map_err(|e| {
                 eprintln!("\nSomething bad happened:\n{}", e);

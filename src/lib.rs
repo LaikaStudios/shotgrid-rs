@@ -226,6 +226,62 @@ impl Shotgun {
         req.send().from_err().and_then(handle_response)
     }
 
+    /// Return all schema field information for a given entity.
+    /// Entity should be a snake cased version of the entity name.
+    /// https://developer.shotgunsoftware.com/rest-api/#read-all-field-schemas-for-an-entity
+    pub fn schema_fields_read<D: 'static>(
+        &self,
+        token: &str,
+        project_id: Option<i32>,
+        entity: &str,
+    ) -> impl Future<Item = D, Error = ShotgunError>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/schema/{}/fields",
+                self.sg_server, entity
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(id) = project_id {
+            req = req.query(&[("project_id", id)]);
+        }
+        req.send().from_err().and_then(handle_response)
+    }
+
+    /// Returns schema information about a specific field on a given entity.
+    /// Entity should be a snaked cased version of the entity name.
+    /// https://developer.shotgunsoftware.com/rest-api/#read-one-field-schema-for-an-entity
+    pub fn schema_field_read<D: 'static>(
+        &self,
+        token: &str,
+        project_id: Option<i32>,
+        entity: &str,
+        field_name: &str,
+    ) -> impl Future<Item = D, Error = ShotgunError>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/schema/{}/fields/{}",
+                self.sg_server, entity, field_name,
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(id) = project_id {
+            req = req.query(&[("project_id", id)]);
+        }
+
+        req.send().from_err().and_then(handle_response)
+    }
+
     /// Create a new entity.
     ///
     /// The `data` field is used the request body, and as such should be an object where the keys

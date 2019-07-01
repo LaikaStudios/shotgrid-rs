@@ -1,5 +1,10 @@
 # (Unreleased)
 
+# [v0.4.1](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.4.0...v0.4.1) (2019-07-01)
+
+- Added `schema_fields_read` to read an entity's entire schema.
+- Added `schema_field_read` to read an entity's single field schema.
+
 # [v0.4.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.3.4...v0.4.0) (2019-06-21)
 
 ### Breaking Changes
@@ -47,7 +52,6 @@
 - Added `Shotgun::schema_read()` to do a read of all entities for a given
   (optional) project.
 
-
 # [v0.2.2](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.2.1...v0.2.2) (2019-06-07)
 
 - Added `Shotgun::authenticate_script_as_user()` to "sudo as" a given user while still
@@ -60,7 +64,6 @@
  - Added Department to Entity enum
 
 # [v0.2.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.1.0...v0.2.0) (2019-05-28)
-
 
 ## Client initialization
 
