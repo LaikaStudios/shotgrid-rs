@@ -282,6 +282,25 @@ impl Shotgun {
         req.send().from_err().and_then(handle_response)
     }
 
+    /// Batch execute requests
+    pub fn batch<D: 'static>(
+        &self,
+        token: &str,
+        data: Value,
+    ) -> impl Future<Item = D, Error = ShotgunError>
+    where
+        D: DeserializeOwned,
+    {
+        self.client
+            .post(&format!("{}/api/v1/entity/_batch", self.sg_server))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(&data)
+            .send()
+            .from_err()
+            .and_then(handle_response)
+    }
+
     /// Create a new entity.
     ///
     /// The `data` field is used the request body, and as such should be an object where the keys
