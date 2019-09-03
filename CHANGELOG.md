@@ -1,5 +1,8 @@
 # (Unreleased)
 
+# [v0.6.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.5.0...v0.6.0) (2019-09-03)
+- Added `batch` method to client.
+
 # [v0.5.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.4.0...v0.5.0) (2019-07-01)
 
 - Added `schema_fields_read` to read an entity's entire schema.
