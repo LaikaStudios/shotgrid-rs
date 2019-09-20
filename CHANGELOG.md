@@ -1,5 +1,7 @@
 # (Unreleased)
 
+# [v0.6.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.6.0...v0.6.1) (2019-09-20)
+
 - Adds implementation of `Clone` and `Debug` for virtually all public types.
 
 # [v0.6.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.5.0...v0.6.0) (2019-09-03)
