@@ -54,6 +54,7 @@ fn get_filter_mime(filters: &Value) -> Result<&'static str, ShotgunError> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Shotgun {
     /// Base url for the shotgun server.
     sg_server: String,
@@ -65,12 +66,12 @@ pub struct Shotgun {
     script_key: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct ErrorResponse {
     errors: Vec<ErrorObject>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct ErrorObject {
     pub id: Option<String>,
     pub status: Option<i64>,
@@ -617,18 +618,20 @@ where
     })
 }
 
+#[derive(Clone, Debug)]
 pub enum ReturnOnly {
     Active,
     Retired,
 }
 
+#[derive(Clone, Debug)]
 pub struct OptionsParameter {
     pub return_only: Option<ReturnOnly>,
     pub include_archived_projects: Option<bool>,
 }
 
 /// This controls the paging of search-style list API calls.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PaginationParameter {
     ///  Pages start at 1, not 0.
     pub number: usize,
@@ -646,7 +649,7 @@ impl Default for PaginationParameter {
     }
 }
 
-#[derive(Fail, Debug)]
+#[derive(Debug, Fail)]
 pub enum ShotgunError {
     #[fail(display = "Client Configuration Error: `{}`.", _0)]
     BadClientConfig(String),
@@ -688,7 +691,7 @@ impl From<reqwest::Error> for ShotgunError {
 }
 
 /// Response from Shotgun after a successful auth challenge.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct TokenResponse {
     pub token_type: String,
     pub access_token: String,
