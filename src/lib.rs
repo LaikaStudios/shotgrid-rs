@@ -306,23 +306,34 @@ impl Shotgun {
     ///
     /// The `data` field is used the request body, and as such should be an object where the keys
     /// are fields on the entity in question.
+    ///
+    /// `fields` can be specified to limit the returned fields from the request.
+    /// Passing `None` will use the default behavior of returning _all fields_.
+    ///
+    /// > **Note**: `fields` currently does nothing due to a shotgun bug.
+    /// > No ETA on the fix:
+    /// > https://support.shotgunsoftware.com/hc/en-us/requests/106834
     pub fn create<D: 'static>(
         &self,
         token: &str,
         entity: &str,
         data: Value,
+        fields: Option<&str>,
     ) -> impl Future<Item = D, Error = ShotgunError>
     where
         D: DeserializeOwned,
     {
-        self.client
+        let mut req = self
+            .client
             .post(&format!("{}/api/v1/entity/{}", self.sg_server, entity,))
             .bearer_auth(token)
             .header("Accept", "application/json")
-            .json(&data)
-            .send()
-            .from_err()
-            .and_then(handle_response)
+            .json(&data);
+
+        if let Some(fields) = fields {
+            req = req.query(&[("options[fields]", fields)]);
+        }
+        req.send().from_err().and_then(handle_response)
     }
 
     /// Read the data for a single entity.
