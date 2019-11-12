@@ -42,12 +42,10 @@ fn get_client() -> Result<Client, ShotgunError> {
         .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))
 }
 
-fn get_filter_mime(filters: &Value) -> Result<&'static str, ShotgunError> {
-    let maybe_filters = filters.get("filters");
-
-    if maybe_filters.map(|v| v.is_array()) == Some(true) {
+fn get_filter_mime(maybe_filters: &Value) -> Result<&'static str, ShotgunError> {
+    if maybe_filters.is_array() {
         Ok("application/vnd+shotgun.api3_array+json")
-    } else if maybe_filters.map(|v| v.is_object()) == Some(true) {
+    } else if maybe_filters.is_object() {
         Ok("application/vnd+shotgun.api3_hash+json")
     } else {
         Err(ShotgunError::InvalidFilters)
@@ -229,7 +227,7 @@ impl Shotgun {
 
     /// Return all schema field information for a given entity.
     /// Entity should be a snake cased version of the entity name.
-    /// https://developer.shotgunsoftware.com/rest-api/#read-all-field-schemas-for-an-entity
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-all-field-schemas-for-an-entity>
     pub fn schema_fields_read<D: 'static>(
         &self,
         token: &str,
@@ -256,7 +254,7 @@ impl Shotgun {
 
     /// Returns schema information about a specific field on a given entity.
     /// Entity should be a snaked cased version of the entity name.
-    /// https://developer.shotgunsoftware.com/rest-api/#read-one-field-schema-for-an-entity
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-one-field-schema-for-an-entity>
     pub fn schema_field_read<D: 'static>(
         &self,
         token: &str,
@@ -430,7 +428,7 @@ impl Shotgun {
     ///
     /// For details on the filter syntax, please refer to the docs:
     ///
-    /// https://developer.shotgunsoftware.com/rest-api/#searching
+    /// <https://developer.shotgunsoftware.com/rest-api/#searching>
     ///
     pub fn search<D: 'static>(
         // FIXME: many parameters here can often be ignored. Switch to builder pattern.
@@ -450,7 +448,7 @@ impl Shotgun {
             .or_else(|| Some(PaginationParameter::default()))
             .unwrap();
 
-        let content_type = match get_filter_mime(filters) {
+        let content_type = match get_filter_mime(&filters["filters"]) {
             // early return if the filters are bogus and fail the sniff test
             Err(e) => return future::Either::A(future::err(e)),
             Ok(mime) => mime,
@@ -521,7 +519,7 @@ impl Shotgun {
     ///
     /// For details on the filter syntax, please refer to the docs:
     ///
-    /// https://developer.shotgunsoftware.com/rest-api/#search-text-entries
+    /// <https://developer.shotgunsoftware.com/rest-api/#search-text-entries>
     ///
     pub fn text_search<D: 'static>(
         &self,
@@ -553,6 +551,187 @@ impl Shotgun {
             .from_err()
             .and_then(handle_response)
     }
+
+    /// Make a summarize request.
+    ///
+    /// This is similar to the aggregate/grouping mechanism provided by SQL
+    /// where you can specify `GROUP BY` and `HAVING` clauses in order to rollup
+    /// query results into buckets.
+    ///
+    /// For more on summary queries, see:
+    ///
+    /// <https://developer.shotgunsoftware.com/rest-api/#summarize-field-data>
+    ///
+    pub fn summarize<D: 'static>(
+        &self,
+        token: &str,
+        entity: &str,
+        filters: Option<Value>,
+        summary_fields: Option<Vec<SummaryField>>,
+        grouping: Option<Vec<Grouping>>,
+        options: Option<SummaryOptions>,
+    ) -> impl Future<Item = D, Error = ShotgunError>
+    where
+        D: DeserializeOwned,
+    {
+        let content_type = {
+            match get_filter_mime(filters.as_ref().unwrap_or(&json!([]))) {
+                // early return if the filters are bogus and fail the sniff test
+                Err(e) => return future::Either::A(future::err(e)),
+                Ok(mime) => mime,
+            }
+        };
+
+        let body = SummarizeRequest {
+            filters,
+            summary_fields,
+            grouping,
+            options,
+        };
+
+        let f = self
+            .client
+            .post(&format!(
+                "{}/api/v1/entity/{}/_summarize",
+                self.sg_server, entity
+            ))
+            .header("Accept", "application/json")
+            .bearer_auth(token)
+            .header("Content-Type", content_type)
+            // XXX: the content type is being set to shotgun's custom mime types
+            //   to indicate the shape of the filter payload. Do not be tempted to use
+            //   `.json()` here instead of `.body()` or you'll end up reverting the
+            //   header set above.
+            .body(json!(body).to_string())
+            .send()
+            .from_err()
+            .and_then(handle_response);
+        future::Either::B(f)
+    }
+}
+
+/// Request body of a summarize query.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SummarizeRequest {
+    /// Filters used to perform the initial search for things you will be
+    /// aggregating.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filters: Option<Value>,
+
+    /// Summary fields represent the calculated values produced per
+    /// grouping.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary_fields: Option<Vec<SummaryField>>,
+
+    /// Groupings for aggregate operations. These are what you are
+    /// _aggregating by_.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grouping: Option<Vec<Grouping>>,
+
+    /// Options for the request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<SummaryOptions>,
+}
+
+/// The type of calculation to summarize.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum SummaryFieldType {
+    #[serde(rename = "record_count")]
+    RecordCount,
+    #[serde(rename = "count")]
+    Count,
+    #[serde(rename = "sum")]
+    Sum,
+    #[serde(rename = "maximum")]
+    Max,
+    #[serde(rename = "minimum")]
+    Min,
+    #[serde(rename = "average")]
+    Avg,
+    #[serde(rename = "earliest")]
+    Earliest,
+    #[serde(rename = "latest")]
+    Latest,
+    #[serde(rename = "percentage")]
+    Percentage,
+    #[serde(rename = "status_percentage")]
+    StatusPercentage,
+    #[serde(rename = "status_list")]
+    StatusList,
+    #[serde(rename = "checked")]
+    Checked,
+    #[serde(rename = "unchecked")]
+    Unchecked,
+    #[serde(rename = "exact")]
+    Exact,
+    #[serde(rename = "tens")]
+    Tens,
+    #[serde(rename = "hundreds")]
+    Hundreds,
+    #[serde(rename = "thousands")]
+    Thousands,
+    #[serde(rename = "tensofthousands")]
+    TensOfThousands,
+    #[serde(rename = "hundredsofthousands")]
+    HundredsOfThousands,
+    #[serde(rename = "millions")]
+    Millions,
+    #[serde(rename = "day")]
+    Day,
+    #[serde(rename = "week")]
+    Week,
+    #[serde(rename = "month")]
+    Month,
+    #[serde(rename = "quarter")]
+    Quarter,
+    #[serde(rename = "year")]
+    Year,
+    #[serde(rename = "clustered_date")]
+    ClusteredDate,
+    #[serde(rename = "oneday")]
+    OneDay,
+    #[serde(rename = "fivedays")]
+    FiveDays,
+    #[serde(rename = "entitytype")]
+    EntityType,
+    #[serde(rename = "firstletter")]
+    FirstLetter,
+}
+
+/// Direction to order a summary grouping.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum GroupDirection {
+    #[serde(rename = "asc")]
+    Asc,
+    #[serde(rename = "desc")]
+    Desc,
+}
+
+/// A summary field consists of a concrete field on an entity and a summary
+/// operation to use to aggregate it as part of a summary request.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct SummaryField {
+    pub field: String,
+    pub r#type: SummaryFieldType,
+}
+
+/// A grouping for a summary request.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Grouping {
+    /// The field to group by.
+    pub field: String,
+    /// The aggregate operation to use to derive the grouping.
+    pub r#type: SummaryFieldType,
+    /// The direction to order the grouping (ASC or DESC).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<GroupDirection>,
+}
+
+/// Options for a summary request.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct SummaryOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_archived_projects: Option<bool>,
 }
 
 /// Checks to see if the `Value` is an object with a top level "errors" key.
