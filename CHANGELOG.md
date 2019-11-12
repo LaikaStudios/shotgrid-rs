@@ -1,6 +1,24 @@
 # (Unreleased)
 
-# [v0.6.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.6.0...v0.6.1) (2019-09-20)
+
+
+# [v0.7.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.6.1...v0.7.0) (2019-11-12)
+
+### Breaking Changes
+
+- `Shotgun::create()` now accepts a new `fields` parameter to control the fields
+  returned by shotgun in the response to the request. Pass `None` to default to
+  the original behavior which is to return _all fields_.
+  
+> Note: for now, Shotgun seems to be 
+> [ignoring this parameter](https://support.shotgunsoftware.com/hc/en-us/requests/106834?page=1)
+> even though it was meant to be supported as of Shotgun 8.5.
+
+### Added
+
+- Added `Shotgun::summarize()` for running aggregate queries.
+
+# [v0.6.1](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.6.0...v0.6.1) (2019-09-20)
 
 - Adds implementation of `Clone` and `Debug` for virtually all public types.
 

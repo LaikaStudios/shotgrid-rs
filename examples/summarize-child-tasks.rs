@@ -21,7 +21,7 @@
 //! ```
 
 use serde_json::{json, Value};
-use shotgun_rs::{Grouping, Shotgun, SummaryField, SummaryFieldType};
+use shotgun_rs::{Grouping, GroupingType, Shotgun, SummaryField, SummaryFieldType};
 use std::env;
 use tokio::prelude::*;
 
@@ -59,12 +59,12 @@ fn main() {
                     Some(vec![
                         Grouping {
                             field: "sg_parent_task".to_string(),
-                            r#type: SummaryFieldType::Exact,
+                            r#type: GroupingType::Exact,
                             direction: None,
                         },
                         Grouping {
                             field: "sg_status_list".to_string(),
-                            r#type: SummaryFieldType::Exact,
+                            r#type: GroupingType::Exact,
                             direction: None,
                         },
                     ]),

@@ -21,7 +21,9 @@
 //! ```
 
 use serde_json::{json, Value};
-use shotgun_rs::{GroupDirection, Grouping, Shotgun, SummaryField, SummaryFieldType};
+use shotgun_rs::{
+    Grouping, GroupingDirection, GroupingType, Shotgun, SummaryField, SummaryFieldType,
+};
 use std::env;
 use tokio::prelude::*;
 
@@ -55,8 +57,8 @@ fn main() {
                     }]),
                     Some(vec![Grouping {
                         field: "sg_asset_type".to_string(),
-                        r#type: SummaryFieldType::Exact,
-                        direction: Some(GroupDirection::Asc),
+                        r#type: GroupingType::Exact,
+                        direction: Some(GroupingDirection::Asc),
                     }]),
                     None,
                 )

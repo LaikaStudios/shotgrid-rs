@@ -662,6 +662,11 @@ pub enum SummaryFieldType {
     Checked,
     #[serde(rename = "unchecked")]
     Unchecked,
+}
+
+/// How to perform the grouping for a given summary request.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum GroupingType {
     #[serde(rename = "exact")]
     Exact,
     #[serde(rename = "tens")]
@@ -700,7 +705,7 @@ pub enum SummaryFieldType {
 
 /// Direction to order a summary grouping.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum GroupDirection {
+pub enum GroupingDirection {
     #[serde(rename = "asc")]
     Asc,
     #[serde(rename = "desc")]
@@ -721,10 +726,10 @@ pub struct Grouping {
     /// The field to group by.
     pub field: String,
     /// The aggregate operation to use to derive the grouping.
-    pub r#type: SummaryFieldType,
+    pub r#type: GroupingType,
     /// The direction to order the grouping (ASC or DESC).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub direction: Option<GroupDirection>,
+    pub direction: Option<GroupingDirection>,
 }
 
 /// Options for a summary request.
