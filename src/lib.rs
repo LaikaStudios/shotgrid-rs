@@ -560,8 +560,8 @@ impl Shotgun {
     ///
     /// For more on summary queries, see:
     ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#summarize-field-data>
-    ///
+    /// - <https://developer.shotgunsoftware.com/rest-api/#summarize-field-data>
+    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.summarize>
     pub fn summarize<D: 'static>(
         &self,
         token: &str,
