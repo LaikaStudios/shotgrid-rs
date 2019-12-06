@@ -58,7 +58,7 @@ fn main() {
                     }]),
                     Some(vec![
                         Grouping {
-                            field: "sg_parent_task".to_string(),
+                            field: "sg_parent_task.Task.id".to_string(),
                             r#type: GroupingType::Exact,
                             direction: None,
                         },
@@ -72,7 +72,7 @@ fn main() {
                 )
                 .and_then(|resp: Value| {
                     for group in resp["data"]["groups"].as_array().unwrap() {
-                        println!("Parent Task: {}", group["group_value"]["id"]);
+                        println!("Parent Task: {}", group["group_value"]);
                         for status_count in group["groups"].as_array().unwrap() {
                             println!(
                                 "{:>10}: {:>6}",
