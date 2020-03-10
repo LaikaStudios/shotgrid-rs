@@ -306,11 +306,9 @@ impl Shotgun {
     /// are fields on the entity in question.
     ///
     /// `fields` can be specified to limit the returned fields from the request.
+    /// `fields` is an optional comma separated list of field names to return in the response.
     /// Passing `None` will use the default behavior of returning _all fields_.
     ///
-    /// > **Note**: `fields` currently does nothing due to a shotgun bug.
-    /// > No ETA on the fix:
-    /// > https://support.shotgunsoftware.com/hc/en-us/requests/106834
     pub fn create<D: 'static>(
         &self,
         token: &str,
