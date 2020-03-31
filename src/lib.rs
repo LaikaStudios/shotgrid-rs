@@ -1,5 +1,33 @@
-use futures::future::{self, Future};
-use futures::Stream;
+//! # Welcome to Shotgun-rs!
+//!
+//! This is a delicately hand-crafted REST API client for working with
+//! [Autodesk Shotgun][shotgun].
+//!
+//! ## Features
+//!
+//! There are a handful of features to help control the configuration of the
+//! underlying HTTP client.
+//!
+//! > By default `native-tls` is enabled, which uses the
+//! > [native-tls crate] to delegate to whatever the canonical tls implementation
+//! > is for the platform.
+//! > The expectation is the system will already have this library installed
+//! > (whichever library it may be).
+//! >
+//! > Other tls backends are available and can be selected with the features
+//! > listed below.
+//!
+//! - `gzip` (to enable gzip compression).
+//! - `native-tls` (as discussed above, uses whatever the canonical tls library
+//!    is for the platform).
+//! - `native-tls-vendored` (same as `native-tls` but will compile the tls
+//!    library from source as a part of the crate's build script).
+//! - `rustls` (uses the [rustls crate] which is a *pure rust tls implementation*).
+//!
+//! [native-tls crate]: https://crates.io/crates/native-tls
+//! [rustls crate]: https://crates.io/crates/rustls
+//! [shotgun]: https://www.shotgunsoftware.com/
+
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -10,17 +38,19 @@ use serde_json::{json, Value};
 #[macro_use]
 extern crate failure;
 use log::{debug, error, trace};
+use reqwest::Response;
 /// This client represents the the http transport layer used by `Shotgun`.
 ///
 /// Should you need to manually configure your client, you can do so then
 /// initialize your Shotgun instance via `Shotgun::with_client()`.
-pub use reqwest::r#async::Client;
-use reqwest::r#async::Response;
+pub use reqwest::{Certificate, Client};
 
 use std::borrow::Cow;
 
+pub type Result<T> = std::result::Result<T, ShotgunError>;
+
 /// Get a default http client with ca certs added to it if specified via env var.
-fn get_client() -> Result<Client, ShotgunError> {
+fn get_client() -> Result<Client> {
     let builder = Client::builder();
 
     let builder = if let Ok(fp) = env::var("CA_BUNDLE") {
@@ -30,7 +60,7 @@ fn get_client() -> Result<Client, ShotgunError> {
             .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?
             .read_to_end(&mut buf)
             .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?;
-        let cert = reqwest::Certificate::from_pem(&buf)
+        let cert = Certificate::from_pem(&buf)
             .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?;
         builder.add_root_certificate(cert)
     } else {
@@ -42,7 +72,7 @@ fn get_client() -> Result<Client, ShotgunError> {
         .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))
 }
 
-fn get_filter_mime(maybe_filters: &Value) -> Result<&'static str, ShotgunError> {
+fn get_filter_mime(maybe_filters: &Value) -> Result<&'static str> {
     if maybe_filters.is_array() {
         Ok("application/vnd+shotgun.api3_array+json")
     } else if maybe_filters.is_object() {
@@ -93,7 +123,7 @@ impl Shotgun {
         sg_server: String,
         script_name: Option<&str>,
         script_key: Option<&str>,
-    ) -> Result<Self, ShotgunError> {
+    ) -> Result<Self> {
         let client = get_client()?;
         Ok(Self {
             sg_server,
@@ -122,58 +152,55 @@ impl Shotgun {
     }
 
     /// Handles running authentication requests.
-    fn authenticate<D: 'static>(
-        &self,
-        form_data: &[(&str, &str)],
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    async fn authenticate<D: 'static>(&self, form_data: &[(&str, &str)]) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
-        self.client
+        let resp = self
+            .client
             .post(&format!("{}/api/v1/auth/access_token", self.sg_server))
             .form(form_data)
             .header("Accept", "application/json")
             .send()
-            .from_err()
-            .and_then(handle_response)
+            .await?;
+        handle_response(resp).await
     }
 
     /// Run a credential (human user logging in) challenge.
-    pub fn authenticate_user<D: 'static>(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    pub async fn authenticate_user<D: 'static>(&self, username: &str, password: &str) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         self.authenticate(&[
             ("grant_type", "password"),
             ("username", username),
             ("password", password),
         ])
+            .await
     }
 
     /// Get an access token payload for a given Api User aka "script."
     ///
     /// This function relies on the script key and name fields being set and will fail with a
     /// `ShotgunError::BadClientConfig` if either is missing.
-    pub fn authenticate_script<D: 'static>(&self) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    pub async fn authenticate_script<D: 'static>(&self) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         if let (Some(script_name), Some(script_key)) =
-            (self.script_name.as_ref(), self.script_key.as_ref())
+        (self.script_name.as_ref(), self.script_key.as_ref())
         {
-            future::Either::A(self.authenticate(&[
-                ("grant_type", "client_credentials"),
-                ("client_id", &script_name),
-                ("client_secret", &script_key),
-            ]))
+            Ok(self
+                .authenticate(&[
+                    ("grant_type", "client_credentials"),
+                    ("client_id", &script_name),
+                    ("client_secret", &script_key),
+                ])
+                .await?)
         } else {
-            future::Either::B(future::err(ShotgunError::BadClientConfig(
+            Err(ShotgunError::BadClientConfig(
                 "Missing script name or key.".into(),
-            )))
+            ))
         }
     }
 
@@ -182,36 +209,31 @@ impl Shotgun {
     ///
     /// This function relies on the script key and name fields being set and will fail with a
     /// `ShotgunError::BadClientConfig` if either is missing.
-    pub fn authenticate_script_as_user<D: 'static>(
-        &self,
-        login: &str,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    pub async fn authenticate_script_as_user<D: 'static>(&self, login: &str) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         if let (Some(script_name), Some(script_key)) =
-            (self.script_name.as_ref(), self.script_key.as_ref())
+        (self.script_name.as_ref(), self.script_key.as_ref())
         {
-            future::Either::A(self.authenticate(&[
-                ("grant_type", "client_credentials"),
-                ("client_id", &script_name),
-                ("client_secret", &script_key),
-                ("scope", &format!("sudo_as_login:{}", login)),
-            ]))
+            Ok(self
+                .authenticate(&[
+                    ("grant_type", "client_credentials"),
+                    ("client_id", &script_name),
+                    ("client_secret", &script_key),
+                    ("scope", &format!("sudo_as_login:{}", login)),
+                ])
+                .await?)
         } else {
-            future::Either::B(future::err(ShotgunError::BadClientConfig(
+            Err(ShotgunError::BadClientConfig(
                 "Missing script name or key.".into(),
-            )))
+            ))
         }
     }
 
-    pub fn schema_read<D: 'static>(
-        &self,
-        token: &str,
-        project_id: Option<i32>,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    pub async fn schema_read<D: 'static>(&self, token: &str, project_id: Option<i32>) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -222,20 +244,20 @@ impl Shotgun {
         if let Some(id) = project_id {
             req = req.query(&[("project_id", id)]);
         }
-        req.send().from_err().and_then(handle_response)
+        handle_response(req.send().await?).await
     }
 
     /// Return all schema field information for a given entity.
     /// Entity should be a snake cased version of the entity name.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-all-field-schemas-for-an-entity>
-    pub fn schema_fields_read<D: 'static>(
+    pub async fn schema_fields_read<D: 'static>(
         &self,
         token: &str,
         project_id: Option<i32>,
         entity: &str,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -249,21 +271,21 @@ impl Shotgun {
         if let Some(id) = project_id {
             req = req.query(&[("project_id", id)]);
         }
-        req.send().from_err().and_then(handle_response)
+        handle_response(req.send().await?).await
     }
 
     /// Returns schema information about a specific field on a given entity.
     /// Entity should be a snaked cased version of the entity name.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-one-field-schema-for-an-entity>
-    pub fn schema_field_read<D: 'static>(
+    pub async fn schema_field_read<D: 'static>(
         &self,
         token: &str,
         project_id: Option<i32>,
         entity: &str,
         field_name: &str,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -278,26 +300,22 @@ impl Shotgun {
             req = req.query(&[("project_id", id)]);
         }
 
-        req.send().from_err().and_then(handle_response)
+        handle_response(req.send().await?).await
     }
 
     /// Batch execute requests
-    pub fn batch<D: 'static>(
-        &self,
-        token: &str,
-        data: Value,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    pub async fn batch<D: 'static>(&self, token: &str, data: Value) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
-        self.client
+        let req = self
+            .client
             .post(&format!("{}/api/v1/entity/_batch", self.sg_server))
             .bearer_auth(token)
             .header("Accept", "application/json")
-            .json(&data)
-            .send()
-            .from_err()
-            .and_then(handle_response)
+            .json(&data);
+
+        handle_response(req.send().await?).await
     }
 
     /// Create a new entity.
@@ -308,16 +326,15 @@ impl Shotgun {
     /// `fields` can be specified to limit the returned fields from the request.
     /// `fields` is an optional comma separated list of field names to return in the response.
     /// Passing `None` will use the default behavior of returning _all fields_.
-    ///
-    pub fn create<D: 'static>(
+    pub async fn create<D: 'static>(
         &self,
         token: &str,
         entity: &str,
         data: Value,
         fields: Option<&str>,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -329,21 +346,21 @@ impl Shotgun {
         if let Some(fields) = fields {
             req = req.query(&[("options[fields]", fields)]);
         }
-        req.send().from_err().and_then(handle_response)
+        handle_response(req.send().await?).await
     }
 
     /// Read the data for a single entity.
     ///
     /// `fields` is an optional comma separated list of field names to return in the response.
-    pub fn read<D: 'static>(
+    pub async fn read<D: 'static>(
         &self,
         token: &str,
         entity: &str,
         id: i32,
         fields: Option<&str>,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -358,61 +375,55 @@ impl Shotgun {
             req = req.query(&[("fields", fields)]);
         }
 
-        req.send().from_err().and_then(handle_response)
+        handle_response(req.send().await?).await
     }
 
     /// Modify an existing entity.
     ///
     /// `data` is used as the request body and as such should be an object with keys and values
     /// corresponding to the fields on the given entity.
-    pub fn update<D: 'static>(
+    pub async fn update<D: 'static>(
         &self,
         token: &str,
         entity: &str,
         id: i32,
         data: Value,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
-        self.client
+        let req = self
+            .client
             .put(&format!(
                 "{}/api/v1/entity/{}/{}",
                 self.sg_server, entity, id
             ))
             .bearer_auth(token)
             .header("Accept", "application/json")
-            .json(&data)
-            .send()
-            .from_err()
-            .and_then(handle_response)
+            .json(&data);
+
+        handle_response(req.send().await?).await
     }
 
     /// Destroy (delete) an entity.
-    pub fn destroy(
-        &self,
-        token: &str,
-        entity: &str,
-        id: i32,
-    ) -> impl Future<Item = (), Error = ShotgunError> {
+    pub async fn destroy(&self, token: &str, entity: &str, id: i32) -> Result<()> {
         let url = format!("{}/api/v1/entity/{}/{}", self.sg_server, entity, id,);
-        self.client
+        let resp = self
+            .client
             .delete(&url)
             .bearer_auth(token)
             .header("Accept", "application/json")
             .send()
-            .from_err()
-            .and_then(move |resp| {
-                if resp.status().is_success() {
-                    Ok(())
-                } else {
-                    Err(ShotgunError::Unexpected(format!(
-                        "Server responded to `DELETE {}` with `{}`",
-                        &url,
-                        resp.status()
-                    )))
-                }
-            })
+            .await?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(ShotgunError::Unexpected(format!(
+                "Server responded to `DELETE {}` with `{}`",
+                &url,
+                resp.status()
+            )))
+        }
     }
 
     /// Find a list of entities matching some filter criteria.
@@ -428,7 +439,7 @@ impl Shotgun {
     ///
     /// <https://developer.shotgunsoftware.com/rest-api/#searching>
     ///
-    pub fn search<D: 'static>(
+    pub async fn search<D: 'static>(
         // FIXME: many parameters here can often be ignored. Switch to builder pattern.
         &self,
         token: &str,
@@ -438,9 +449,9 @@ impl Shotgun {
         sort: Option<String>,
         pagination: Option<PaginationParameter>,
         options: Option<OptionsParameter>,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         let pagination = pagination
             .or_else(|| Some(PaginationParameter::default()))
@@ -448,7 +459,7 @@ impl Shotgun {
 
         let content_type = match get_filter_mime(&filters["filters"]) {
             // early return if the filters are bogus and fail the sniff test
-            Err(e) => return future::Either::A(future::err(e)),
+            Err(e) => return Err(e),
             Ok(mime) => mime,
         };
 
@@ -490,7 +501,7 @@ impl Shotgun {
             }
         }
 
-        let f = self
+        let req = self
             .client
             .post(&format!(
                 "{}/api/v1/entity/{}/_search",
@@ -504,11 +515,9 @@ impl Shotgun {
             //   to indicate the shape of the filter payload. Do not be tempted to use
             //   `.json()` here instead of `.body()` or you'll end up reverting the
             //   header set above.
-            .body(filters.to_string())
-            .send()
-            .from_err()
-            .and_then(handle_response);
-        future::Either::B(f)
+            .body(filters.to_string());
+
+        handle_response(req.send().await?).await
     }
 
     /// Search for entities of the given type(s) and returns a list of basic entity data
@@ -519,14 +528,14 @@ impl Shotgun {
     ///
     /// <https://developer.shotgunsoftware.com/rest-api/#search-text-entries>
     ///
-    pub fn text_search<D: 'static>(
+    pub async fn text_search<D: 'static>(
         &self,
         token: &str,
         filters: &Value,
         pagination: Option<PaginationParameter>,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
         let pagination = pagination
             .or_else(|| Some(PaginationParameter::default()))
@@ -539,15 +548,15 @@ impl Shotgun {
             map.insert("page".to_string(), json!(pagination));
         }
 
-        self.client
+        let req = self
+            .client
             .post(&format!("{}/api/v1/entity/_text_search", self.sg_server))
             .header("Content-Type", "application/vnd+shotgun.api3_array+json")
             .header("Accept", "application/json")
             .bearer_auth(token)
-            .body(filters.to_string())
-            .send()
-            .from_err()
-            .and_then(handle_response)
+            .body(filters.to_string());
+
+        handle_response(req.send().await?).await
     }
 
     /// Make a summarize request.
@@ -560,7 +569,7 @@ impl Shotgun {
     ///
     /// - <https://developer.shotgunsoftware.com/rest-api/#summarize-field-data>
     /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.summarize>
-    pub fn summarize<D: 'static>(
+    pub async fn summarize<D: 'static>(
         &self,
         token: &str,
         entity: &str,
@@ -568,17 +577,11 @@ impl Shotgun {
         summary_fields: Option<Vec<SummaryField>>,
         grouping: Option<Vec<Grouping>>,
         options: Option<SummaryOptions>,
-    ) -> impl Future<Item = D, Error = ShotgunError>
-    where
-        D: DeserializeOwned,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
     {
-        let content_type = {
-            match get_filter_mime(filters.as_ref().unwrap_or(&json!([]))) {
-                // early return if the filters are bogus and fail the sniff test
-                Err(e) => return future::Either::A(future::err(e)),
-                Ok(mime) => mime,
-            }
-        };
+        let content_type = get_filter_mime(filters.as_ref().unwrap_or(&json!([])))?;
 
         let body = SummarizeRequest {
             filters,
@@ -587,7 +590,7 @@ impl Shotgun {
             options,
         };
 
-        let f = self
+        let req = self
             .client
             .post(&format!(
                 "{}/api/v1/entity/{}/_summarize",
@@ -600,11 +603,8 @@ impl Shotgun {
             //   to indicate the shape of the filter payload. Do not be tempted to use
             //   `.json()` here instead of `.body()` or you'll end up reverting the
             //   header set above.
-            .body(json!(body).to_string())
-            .send()
-            .from_err()
-            .and_then(handle_response);
-        future::Either::B(f)
+            .body(json!(body).to_string());
+        handle_response(req.send().await?).await
     }
 }
 
@@ -758,57 +758,55 @@ fn contains_errors(value: &Value) -> bool {
 /// This function aims to cover converting the raw body into either the shape you requested, or an
 /// Error with some details about what went wrong if your shape doesn't fit, or any of that other
 /// stuff happened.
-fn handle_response<D>(resp: Response) -> impl Future<Item = D, Error = ShotgunError>
-where
-    D: DeserializeOwned,
+async fn handle_response<D>(resp: Response) -> Result<D>
+    where
+        D: DeserializeOwned,
 {
-    resp.into_body().concat2().from_err().and_then(|bytes| {
-        // There are three (3) potential failure modes here:
-        //
-        // 1. Connection problems could lead to partial/garbled/non-json payload
-        //    resulting in a json parse error.
-        // 2. The payload could be json, but contain an error message from shotgun about
-        //    the filter.
-        // 3. The payload might parse as valid json, but the json might not fit the
-        //    deserialization target `D`.
-        let res: Result<D, ShotgunError> = match serde_json::from_slice::<Value>(&bytes) {
-            Err(e) => {
-                // case 1 - non-valid json
-                error!("Failed to parse payload: `{}` - `{:?}`", e, &bytes);
-                // if we can't parse the json at all, bail as-is
-                Err(ShotgunError::from(e))
-            }
-            Ok(v) => {
-                if contains_errors(&v) {
-                    trace!("Got error response from shotgun:\n{}", &v.to_string());
-                    // case 2 - shotgun response has error feedback.
-                    match serde_json::from_value::<ErrorResponse>(v) {
-                        Ok(resp) => {
-                            let maybe_not_found = resp
-                                .errors
-                                .iter()
-                                .find(|ErrorObject { status, .. }| status == &Some(404));
+    let bytes = resp.bytes().await?;
+    // There are three (3) potential failure modes here:
+    //
+    // 1. Connection problems could lead to partial/garbled/non-json payload
+    //    resulting in a json parse error.
+    // 2. The payload could be json, but contain an error message from shotgun about
+    //    the filter.
+    // 3. The payload might parse as valid json, but the json might not fit the
+    //    deserialization target `D`.
+    match serde_json::from_slice::<Value>(&bytes) {
+        Err(e) => {
+            // case 1 - non-valid json
+            error!("Failed to parse payload: `{}` - `{:?}`", e, &bytes);
+            // if we can't parse the json at all, bail as-is
+            Err(ShotgunError::from(e))
+        }
+        Ok(v) => {
+            if contains_errors(&v) {
+                trace!("Got error response from shotgun:\n{}", &v.to_string());
+                // case 2 - shotgun response has error feedback.
+                match serde_json::from_value::<ErrorResponse>(v) {
+                    Ok(resp) => {
+                        let maybe_not_found = resp
+                            .errors
+                            .iter()
+                            .find(|ErrorObject { status, .. }| status == &Some(404));
 
-                            if let Some(ErrorObject { detail, .. }) = maybe_not_found {
-                                Err(ShotgunError::NotFound(
-                                    detail.clone().unwrap_or_else(|| "".into()),
-                                ))
-                            } else {
-                                Err(ShotgunError::ServerError(resp.errors))
-                            }
+                        if let Some(ErrorObject { detail, .. }) = maybe_not_found {
+                            Err(ShotgunError::NotFound(
+                                detail.clone().unwrap_or_else(|| "".into()),
+                            ))
+                        } else {
+                            Err(ShotgunError::ServerError(resp.errors))
                         }
-                        // also, a non-valid json/shape sub-case if the response doesn't
-                        // look as expected.
-                        Err(err) => Err(ShotgunError::from(err)),
                     }
-                } else {
-                    // case 3 - either we get the shape we want or we get an error
-                    serde_json::from_value::<D>(v).map_err(ShotgunError::from)
+                    // also, a non-valid json/shape sub-case if the response doesn't
+                    // look as expected.
+                    Err(err) => Err(ShotgunError::from(err)),
                 }
+            } else {
+                // case 3 - either we get the shape we want or we get an error
+                serde_json::from_value::<D>(v).map_err(ShotgunError::from)
             }
-        };
-        res
-    })
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -848,7 +846,7 @@ pub enum ShotgunError {
     BadClientConfig(String),
 
     #[fail(
-        display = "Invalid Filters: expected `filters` key to be array or object; was neither."
+    display = "Invalid Filters: expected `filters` key to be array or object; was neither."
     )]
     InvalidFilters,
 
