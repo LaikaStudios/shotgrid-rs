@@ -110,6 +110,156 @@ pub struct ErrorObject {
     pub meta: Option<serde_json::Map<String, Value>>,
 }
 
+pub struct SearchBuilder<'a> {
+    sg: &'a Shotgun,
+    token: &'a str,
+    entity: &'a str,
+    fields: &'a str,
+    filters: &'a Value,
+    sort: Option<String>,
+    pagination: Option<PaginationParameter>,
+    options: Option<OptionsParameter>,
+}
+
+impl<'a> SearchBuilder<'a> {
+    pub fn new(
+        sg: &'a Shotgun,
+        token: &'a str,
+        entity: &'a str,
+        fields: &'a str,
+        filters: &'a Value,
+    ) -> Result<SearchBuilder<'a>> {
+        Ok(SearchBuilder {
+            sg,
+            token,
+            entity,
+            fields,
+            filters,
+            sort: None,
+            pagination: None,
+            options: None,
+        })
+    }
+
+    pub fn sort(mut self, value: Option<&'a str>) -> Self {
+        self.sort = value.map(|f| f.to_string());
+        self
+    }
+
+    pub fn size(mut self, value: Option<usize>) -> Self {
+        let mut pagination = self.pagination.take().unwrap_or_default();
+        if pagination.number.is_none() && value.is_none() {
+            self.pagination = None;
+        } else {
+            pagination.size = value;
+            self.pagination.replace(pagination);
+        }
+        self
+    }
+
+    pub fn number(mut self, value: Option<usize>) -> Self {
+        let mut pagination = self.pagination.take().unwrap_or_default();
+        if pagination.size.is_none() && value.is_none() {
+            self.pagination = None;
+        } else {
+            pagination.number = value;
+            self.pagination.replace(pagination);
+        }
+        self
+    }
+
+    pub fn return_only(mut self, value: Option<ReturnOnly>) -> Self {
+        let mut options = self.options.take().unwrap_or_default();
+        if options.include_archived_projects.is_none() && value.is_none() {
+            self.options = None;
+        } else {
+            options.return_only = value;
+            self.options.replace(options);
+        }
+        self
+    }
+
+    pub fn include_archived_projects(mut self, value: Option<bool>) -> Self {
+        let mut options = self.options.take().unwrap_or_default();
+        if options.return_only.is_none() && value.is_none() {
+            self.options = None;
+        } else {
+            options.include_archived_projects = value;
+            self.options.replace(options);
+        }
+        self
+    }
+
+    pub async fn execute<D: 'static>(self) -> Result<D>
+        where
+            D: DeserializeOwned,
+    {
+        let content_type = match get_filter_mime(&self.filters) {
+            // early return if the filters are bogus and fail the sniff test
+            Err(e) => return Err(e),
+            Ok(mime) => mime,
+        };
+
+        let mut qs: Vec<(&str, Cow<str>)> = vec![("fields", Cow::Borrowed(self.fields))];
+        if let Some(pag) = self.pagination {
+            if let Some(number) = pag.number {
+                qs.push(("page[number]", Cow::Owned(format!("{}", number))));
+            }
+
+            // The page size is optional so we don't have to hard code
+            // shotgun's *current* default of 500 into the library.
+            //
+            // If/when shotgun changes their default, folks who haven't
+            // specified a page size should get whatever shotgun says, not *our*
+            // hard-coded default.
+            if let Some(size) = pag.size {
+                qs.push(("page[size]", Cow::Owned(format!("{}", size))));
+            }
+        }
+
+        if let Some(sort) = self.sort {
+            qs.push(("sort", Cow::Owned(sort)));
+        }
+
+        if let Some(opts) = self.options {
+            if let Some(return_only) = opts.return_only {
+                qs.push((
+                    "options[return_only]",
+                    Cow::Borrowed(match return_only {
+                        ReturnOnly::Active => "active",
+                        ReturnOnly::Retired => "retired",
+                    }),
+                ));
+            }
+            if let Some(include_archived_projects) = opts.include_archived_projects {
+                qs.push((
+                    "options[include_archived_projects]",
+                    Cow::Owned(format!("{}", include_archived_projects)),
+                ));
+            }
+        }
+
+        let req = self
+            .sg
+            .client
+            .post(&format!(
+                "{}/api/v1/entity/{}/_search",
+                self.sg.sg_server, self.entity
+            ))
+            .query(&qs)
+            .header("Accept", "application/json")
+            .bearer_auth(self.token)
+            .header("Content-Type", content_type)
+            // XXX: the content type is being set to shotgun's custom mime types
+            //   to indicate the shape of the filter payload. Do not be tempted to use
+            //   `.json()` here instead of `.body()` or you'll end up reverting the
+            //   header set above.
+            .body(json!({"filters": self.filters}).to_string());
+
+        handle_response(req.send().await?).await
+    }
+}
+
 impl Shotgun {
     /// Create a new Shotgun API Client using all defaults.
     ///
@@ -439,85 +589,14 @@ impl Shotgun {
     ///
     /// <https://developer.shotgunsoftware.com/rest-api/#searching>
     ///
-    pub async fn search<D: 'static>(
-        // FIXME: many parameters here can often be ignored. Switch to builder pattern.
-        &self,
-        token: &str,
-        entity: &str,
-        fields: &str,
-        filters: &Value,
-        sort: Option<String>,
-        pagination: Option<PaginationParameter>,
-        options: Option<OptionsParameter>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let pagination = pagination
-            .or_else(|| Some(PaginationParameter::default()))
-            .unwrap();
-
-        let content_type = match get_filter_mime(&filters["filters"]) {
-            // early return if the filters are bogus and fail the sniff test
-            Err(e) => return Err(e),
-            Ok(mime) => mime,
-        };
-
-        let mut qs: Vec<(&str, Cow<str>)> = vec![
-            ("fields", Cow::Borrowed(fields)),
-            ("page[number]", Cow::Owned(format!("{}", pagination.number))),
-        ];
-
-        // The page size is optional so we don't have to hard code
-        // shotgun's *current* default of 500 into the library.
-        //
-        // If/when shotgun changes their default, folks who haven't
-        // specified a page size should get whatever shotgun says, not *our*
-        // hard-coded default.
-        if let Some(size) = pagination.size {
-            qs.push(("page[size]", Cow::Owned(format!("{}", size))));
-        }
-
-        if let Some(sort) = sort {
-            qs.push(("sort", Cow::Owned(sort)));
-        }
-
-        if let Some(opts) = options {
-            if let Some(return_only) = opts.return_only {
-                qs.push((
-                    "options[return_only]",
-                    Cow::Borrowed(match return_only {
-                        ReturnOnly::Active => "active",
-                        ReturnOnly::Retired => "retired",
-                    }),
-                ));
-            }
-
-            if let Some(include_archived_projects) = opts.include_archived_projects {
-                qs.push((
-                    "options[include_archived_projects]",
-                    Cow::Owned(format!("{}", include_archived_projects)),
-                ));
-            }
-        }
-
-        let req = self
-            .client
-            .post(&format!(
-                "{}/api/v1/entity/{}/_search",
-                self.sg_server, entity
-            ))
-            .query(&qs)
-            .header("Accept", "application/json")
-            .bearer_auth(token)
-            .header("Content-Type", content_type)
-            // XXX: the content type is being set to shotgun's custom mime types
-            //   to indicate the shape of the filter payload. Do not be tempted to use
-            //   `.json()` here instead of `.body()` or you'll end up reverting the
-            //   header set above.
-            .body(filters.to_string());
-
-        handle_response(req.send().await?).await
+    pub fn search<'a>(
+        &'a self,
+        token: &'a str,
+        entity: &'a str,
+        fields: &'a str,
+        filters: &'a Value,
+    ) -> Result<SearchBuilder<'a>> {
+        Ok(SearchBuilder::new(self, token, entity, fields, filters)?)
     }
 
     /// Search for entities of the given type(s) and returns a list of basic entity data
@@ -821,11 +900,20 @@ pub struct OptionsParameter {
     pub include_archived_projects: Option<bool>,
 }
 
+impl Default for OptionsParameter {
+    fn default() -> Self {
+        Self {
+            return_only: None,
+            include_archived_projects: None,
+        }
+    }
+}
+
 /// This controls the paging of search-style list API calls.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PaginationParameter {
     ///  Pages start at 1, not 0.
-    pub number: usize,
+    pub number: Option<usize>,
     /// Shotgun's default currently is 500
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<usize>,
@@ -834,7 +922,7 @@ pub struct PaginationParameter {
 impl Default for PaginationParameter {
     fn default() -> Self {
         Self {
-            number: 1,
+            number: None,
             size: None,
         }
     }

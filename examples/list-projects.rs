@@ -26,53 +26,38 @@ use prettytable::{format, Table};
 use serde_json::{json, Value};
 use shotgun_rs::Shotgun;
 use std::env;
-use tokio::prelude::*;
 
-fn main() {
+#[tokio::main]
+async fn main() -> shotgun_rs::Result<()> {
     let server = env::var("SG_SERVER").expect("SG_SERVER is required var.");
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let fut = {
-        let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-        sg.authenticate_script()
-            .and_then(|mut resp: Value| {
-                let val = resp["access_token"].take();
-                Ok(val.as_str().unwrap().to_string())
-            })
-            .and_then(move |token: String| {
-                sg.search(
-                    &token,
-                    "Project",
-                    "id,code,name",
-                    &json!({ "filters": [] }),
-                    None,
-                    None,
-                    None,
-                )
-                .and_then(|resp: Value| Ok(resp["data"].as_array().unwrap().to_vec()))
-                .and_then(|items| {
-                    let mut table = Table::new();
-                    table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
-                    table.set_titles(row!["ID", "Code", "Name"]);
-
-                    for project in items {
-                        let id = project["id"].as_i64().unwrap();
-                        let code = project["attributes"]["code"].as_str().unwrap_or("");
-                        let name = project["attributes"]["name"].as_str().unwrap_or("");
-                        table.add_row(row![id, code, name]);
-                    }
-
-                    table.printstd();
-                    Ok(())
-                })
-            })
-            .map_err(|e| {
-                eprintln!("\nSomething bad happend:\n{}", e);
-            })
+    let token = {
+        let resp: Value = sg.authenticate_script().await?;
+        resp["access_token"].as_str().unwrap().to_string()
     };
 
-    // Execute the future pipeline, blocking until it completes.
-    tokio::run(fut);
+    let resp: Value = sg
+        .search(&token, "Project", "id,code,name", &json!([]))?
+        .size(Some(3))
+        .number(Some(2))
+        .execute()
+        .await?;
+    let items = resp["data"].as_array().unwrap().to_vec();
+    let mut table = Table::new();
+    table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+    table.set_titles(row!["ID", "Code", "Name"]);
+
+    for project in items {
+        let id = project["id"].as_i64().unwrap();
+        let code = project["attributes"]["code"].as_str().unwrap_or("");
+        let name = project["attributes"]["name"].as_str().unwrap_or("");
+        table.add_row(row![id, code, name]);
+    }
+
+    table.printstd();
+    Ok(())
 }

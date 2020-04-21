@@ -39,7 +39,7 @@ fn main() {
         .next()
         .map(|s| s.parse().expect("limit must be a number"));
     let page_req = PaginationParameter {
-        number: 1,
+        number: Some(1),
         size: limit,
     };
 
