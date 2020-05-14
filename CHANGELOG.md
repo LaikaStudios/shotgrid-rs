@@ -1,6 +1,19 @@
 # (Unreleased)
 
 
+# [v0.8.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.7.0...v0.8.0) (2020-05-14)
+
+### Breaking Changes
+
+- Adopts async/await. Client signatures now use `async fn` instead of futures
+  0.1 style `impl Future`.
+
+### Additional
+
+- A `gzip` feature (off by default) has been added to allow dependents to
+  enable gzip support for the underlying HTTP client.
+
+
 
 # [v0.7.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.6.1...v0.7.0) (2019-11-12)
 
