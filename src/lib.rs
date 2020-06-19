@@ -66,7 +66,6 @@ fn get_client() -> Result<Client> {
     } else {
         builder
     };
-
     builder
         .build()
         .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))
@@ -80,6 +79,31 @@ fn get_filter_mime(maybe_filters: &Value) -> Result<&'static str> {
     } else {
         Err(ShotgunError::InvalidFilters)
     }
+}
+
+// Gets the mime type based on the entity_types.
+// If they don't all match the same type (array vs object), an error is returned
+fn get_entity_types_mime(maybe_filters: &Value) -> Result<&'static str> {
+    let mut content_type: Option<&str> = None;
+    let filters = maybe_filters["entity_types"].as_object();
+    if filters.is_none() {
+        return Err(ShotgunError::InvalidFilters);
+    }
+
+    for (_, value) in filters.unwrap() {
+        content_type = match get_filter_mime(&value) {
+            Err(e) => return Err(e),
+            Ok(mime) => {
+                // If all entity_type filters don't match the same content_type, raise an error
+                if content_type.is_some() && Some(mime) != content_type {
+                    return Err(ShotgunError::InvalidFilters);
+                }
+                Some(mime)
+            }
+        };
+    }
+    // Should not panic because we return Err in all other cases
+    Ok(content_type.unwrap())
 }
 
 #[derive(Clone, Debug)]
@@ -627,14 +651,19 @@ impl Shotgun {
             map.insert("page".to_string(), json!(pagination));
         }
 
+        let content_type = match get_entity_types_mime(&filters) {
+            // early return if the filters are bogus and fail the sniff test
+            Err(e) => return Err(e),
+            Ok(mime) => mime,
+        };
+
         let req = self
             .client
             .post(&format!("{}/api/v1/entity/_text_search", self.sg_server))
-            .header("Content-Type", "application/vnd+shotgun.api3_array+json")
+            .header("Content-Type", content_type)
             .header("Accept", "application/json")
             .bearer_auth(token)
             .body(filters.to_string());
-
         handle_response(req.send().await?).await
     }
 
@@ -976,4 +1005,60 @@ pub struct TokenResponse {
     pub access_token: String,
     pub expires_in: i64,
     pub refresh_token: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_entity_types_mime_array_entity_types() {
+        let filters = json!({"entity_types":
+            {
+                "Project": [["is_demo", "is", true]],
+                "Asset": [["sg_status", "is", "Hold"]]
+            }
+        });
+        let expected_mime = "application/vnd+shotgun.api3_array+json";
+        assert_eq!(get_entity_types_mime(&filters).unwrap(), expected_mime);
+    }
+
+    #[test]
+    fn test_get_entity_types_mime_object_entity_types() {
+        let filters = json!({"entity_types":
+            {
+                "Project": {"logical_operator": "and", "conditions": [["is_demo", "is", true], ["code", "is", "Foobar"]]},
+                "Asset": {"logical_operator": "or", "conditions": [["sg_status", "is", "Hold"], ["code", "is", "FizzBuzz"]]}
+            }
+        });
+        let expected_mime = "application/vnd+shotgun.api3_hash+json";
+        assert_eq!(get_entity_types_mime(&filters).unwrap(), expected_mime);
+    }
+
+    #[test]
+    fn test_get_entity_types_mime_mixed_entity_types_should_fail() {
+        let filters = json!({"entity_types":
+            {
+                "Project": {"logical_operator": "and", "conditions": [["is_demo", "is", true], ["code", "is", "Foobar"]]},
+                "Asset": [["sg_status", "is", "Hold"]]
+            }
+        });
+
+        let result = get_entity_types_mime(&filters);
+        match result {
+            Err(ShotgunError::InvalidFilters) => assert!(true),
+            _ => assert!(false, "Expected ShotgunError::InvalidFilters"),
+        }
+    }
+
+    #[test]
+    fn test_get_invalid_entity_type_should_fail() {
+        let filters = json!({"entity_types": ["foobar"]});
+
+        let result = get_entity_types_mime(&filters);
+        match result {
+            Err(ShotgunError::InvalidFilters) => assert!(true),
+            _ => assert!(false, "Expected ShotgunError::InvalidFilters"),
+        }
+    }
 }
