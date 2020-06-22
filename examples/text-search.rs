@@ -28,6 +28,8 @@ use std::env;
 
 #[tokio::main]
 async fn main() -> shotgun_rs::Result<()> {
+    dotenv::dotenv().ok();
+
     let server = env::var("SG_SERVER").expect("SG_SERVER is required var.");
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");

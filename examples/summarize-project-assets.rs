@@ -25,9 +25,11 @@ use shotgun_rs::{
     Grouping, GroupingDirection, GroupingType, Shotgun, SummaryField, SummaryFieldType,
 };
 use std::env;
-use tokio::prelude::*;
 
-fn main() {
+#[tokio::main]
+async fn main() -> shotgun_rs::Result<()> {
+    dotenv::dotenv().ok();
+
     let server = env::var("SG_SERVER").expect("SG_SERVER is required var.");
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
@@ -38,40 +40,31 @@ fn main() {
         .parse()
         .expect("invalid project id");
 
-    let fut = {
-        let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-        sg.authenticate_script()
-            .and_then(|mut resp: Value| {
-                let val = resp["access_token"].take();
-                Ok(val.as_str().unwrap().to_string())
-            })
-            .and_then(move |token: String| {
-                sg.summarize(
-                    &token,
-                    "Asset",
-                    Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
-                    Some(vec![SummaryField {
-                        field: "id".to_string(),
-                        r#type: SummaryFieldType::Count,
-                    }]),
-                    Some(vec![Grouping {
-                        field: "sg_asset_type".to_string(),
-                        r#type: GroupingType::Exact,
-                        direction: Some(GroupingDirection::Asc),
-                    }]),
-                    None,
-                )
-                .and_then(|resp: Value| {
-                    println!("{}", resp);
-                    Ok(())
-                })
-            })
-            .map_err(|e| {
-                eprintln!("\nSomething bad happened:\n{}", e);
-            })
+    let token = {
+        let resp: Value = sg.authenticate_script().await?;
+        resp["access_token"].as_str().unwrap().to_string()
     };
 
-    // Execute the future pipeline, blocking until it completes.
-    tokio::run(fut);
+    let resp: Value = sg
+        .summarize(
+            &token,
+            "Asset",
+            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+            Some(vec![SummaryField {
+                field: "id".to_string(),
+                r#type: SummaryFieldType::Count,
+            }]),
+            Some(vec![Grouping {
+                field: "sg_asset_type".to_string(),
+                r#type: GroupingType::Exact,
+                direction: Some(GroupingDirection::Asc),
+            }]),
+            None,
+        )
+        .await?;
+
+    println!("{}", resp);
+    Ok(())
 }

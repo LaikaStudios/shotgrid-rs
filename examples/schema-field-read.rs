@@ -25,9 +25,11 @@
 use serde_json::Value;
 use shotgun_rs::Shotgun;
 use std::env;
-use tokio::prelude::*;
 
-fn main() {
+#[tokio::main]
+async fn main() -> shotgun_rs::Result<()> {
+    dotenv::dotenv().ok();
+
     let server = env::var("SG_SERVER").expect("SG_SERVER is required var.");
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
@@ -42,28 +44,19 @@ fn main() {
     let field_name: Option<String> = env::args().skip(3).next().and_then(|s| Some(s));
 
     println!("Attempting to read {:?} on {:?}", field_name, entity);
-    let fut = {
-        let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-        sg.authenticate_script()
-            .and_then(|mut resp: Value| {
-                let val = resp["access_token"].take();
-                Ok(val.as_str().unwrap().to_string())
-            })
-            .and_then(move |token: String| {
-                sg.schema_field_read(&token, project_id, &entity.unwrap(), &field_name.unwrap())
-                    .and_then(|resp: Value| {
-                        for key in resp["data"].as_object().expect("response decode").keys() {
-                            println!("{}: {}", key, resp["data"][key]);
-                        }
-                        Ok(())
-                    })
-            })
-            .map_err(|e| {
-                eprintln!("\nSomething bad happened:\n{}", e);
-            })
+    let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+
+    let token = {
+        let resp: Value = sg.authenticate_script().await?;
+        resp["access_token"].as_str().unwrap().to_string()
     };
 
-    // Execute the future pipeline, blocking until it completes.
-    tokio::run(fut);
+    let resp: Value = sg
+        .schema_field_read(&token, project_id, &entity.unwrap(), &field_name.unwrap())
+        .await?;
+    for key in resp["data"].as_object().expect("response decode").keys() {
+        println!("{}: {}", key, resp["data"][key]);
+    }
+    Ok(())
 }
