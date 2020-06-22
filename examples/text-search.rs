@@ -19,21 +19,22 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example text-search <asset name to search for> [limit]
+//! $ cargo run --example text-search <shotgun login to search as> <asset name to search for> [limit]
 //! ```
 
 use serde_json::{json, Value};
 use shotgun_rs::{PaginationParameter, Shotgun};
 use std::env;
-use tokio::prelude::*;
 
-fn main() {
+#[tokio::main]
+async fn main() -> shotgun_rs::Result<()> {
     let server = env::var("SG_SERVER").expect("SG_SERVER is required var.");
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
     let mut args = std::env::args().skip(1);
 
+    let login: String = args.next().expect("login required");
     let text: String = args.next().expect("search text required");
     let limit: Option<usize> = args
         .next()
@@ -43,35 +44,26 @@ fn main() {
         size: limit,
     };
 
-    let fut = {
-        let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-        sg.authenticate_script()
-            .and_then(|mut resp: Value| {
-                let val = resp["access_token"].take();
-                Ok(val.as_str().unwrap().to_string())
-            })
-            .and_then(move |token: String| {
-                sg.text_search(
-                    &token,
-                    &json!({
-                        "text": &text,
-                        "entity_types": {
-                            "Asset": [["sg_status_list", "is_not", "omt"]]
-                        },
-                    }),
-                    Some(page_req),
-                )
-                .and_then(|resp: Value| {
-                    println!("{}", serde_json::to_string_pretty(&resp).unwrap());
-                    Ok(())
-                })
-            })
-            .map_err(|e| {
-                eprintln!("\nSomething bad happend:\n{}", e);
-            })
+    let token = {
+        let resp: Value = sg.authenticate_script_as_user(&login).await?;
+        resp["access_token"].as_str().unwrap().to_string()
     };
 
-    // Execute the future pipeline, blocking until it completes.
-    tokio::run(fut);
+    let resp: Value = sg
+        .text_search(
+            &token,
+            &json!({
+                "text": &text,
+                "entity_types": {
+                    "Asset": [["sg_status_list", "is_not", "omt"]]
+                },
+            }),
+            Some(page_req),
+        )
+        .await?;
+
+    println!("{}", serde_json::to_string_pretty(&resp).unwrap());
+    Ok(())
 }

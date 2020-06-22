@@ -627,6 +627,15 @@ impl Shotgun {
     /// that fits the search. Rich filters can be used to narrow down searches to entities
     /// that match the filters.
     ///
+    /// > **Important**: performing text searches requires a `HumanUser` and *not
+    /// > an `ApiUser`*.
+    /// > Either the access token used must belong to a `HumanUser` or must have
+    /// > been acquired with the "sudo as" `Shotgun::authenticate_script_as_user()`
+    /// > method.
+    /// >
+    /// > Failing to supply a valid `HumanUser` for this operation will get you
+    /// > a 500 response from shotgun, with a 100 "unknown" error code.
+    ///
     /// For details on the filter syntax, please refer to the docs:
     ///
     /// <https://developer.shotgunsoftware.com/rest-api/#search-text-entries>
