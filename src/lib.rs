@@ -1071,3 +1071,81 @@ mod tests {
         }
     }
 }
+#[cfg(test)]
+mod mock_tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn test_login_good_creds() {
+        let mock_server = MockServer::start().await;
+        let body = r##"
+        {
+          "token_type": "Bearer",
+          "access_token": "$$ACCESS_TOKEN$$",
+          "expires_in": 600,
+          "refresh_token": "$$REFRESH_TOKEN$$"
+        }
+        "##;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/auth/access_token"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .mount(&mock_server)
+            .await;
+        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+
+        let resp: TokenResponse = sg
+            .authenticate_user("nbabcock", "forgot my passwd")
+            .await
+            .unwrap();
+
+        assert_eq!("$$ACCESS_TOKEN$$", resp.access_token);
+        assert_eq!("$$REFRESH_TOKEN$$", resp.refresh_token);
+        assert_eq!("Bearer", resp.token_type);
+        assert_eq!(600, resp.expires_in);
+    }
+
+    #[tokio::test]
+    async fn test_login_bad_creds() {
+        let mock_server = MockServer::start().await;
+        let body = r##"
+        {
+            "errors": [
+               {
+                  "id": "xxxxx",
+                  "status": 500,
+                  "code": 100,
+                  "title": "Shotgun Server Error",
+                  "source": null,
+                  "detail": "Please contact your Shotgun administrator, or contact Shotgun support at: support@shotgunsoftware.com. Please pass on the following information so we can trace what happened: Request: xxxxx Event: .",
+                  "meta": null
+                }
+            ]
+        }
+        "##;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/auth/access_token"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .mount(&mock_server)
+            .await;
+        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+
+        let resp: Result<TokenResponse> = sg.authenticate_user("nbabcock", "iCdEAD!ppl").await;
+
+        // verify the error response was decoded as expected.
+        match resp {
+            Err(ShotgunError::ServerError(errors)) => {
+                let details = &errors[0];
+                assert_eq!("xxxxx", details.id.as_ref().unwrap());
+                assert_eq!(500, details.status.unwrap());
+                assert_eq!(100, details.code.unwrap());
+                assert!(details.source.is_none());
+                assert!(details.detail.as_ref().unwrap().contains("Request: xxxxx"));
+            }
+            _ => unreachable!(),
+        }
+    }
+}
