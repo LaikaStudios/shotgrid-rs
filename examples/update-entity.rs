@@ -1,4 +1,6 @@
-//! Small example program that prints out a table of projects. For this to work you must set 3 env
+//! Small example program that updates an entity.
+//!
+//! For this to work you must set 3 env
 //! vars, `SG_SERVER`, `SG_SCRIPT_NAME`, and `SG_SCRIPT_KEY`.
 //!
 //! Set the `SG_SERVER` environment variable to the url for your shotgun server, eg:
@@ -17,13 +19,11 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example summarize-project-assets <project id>
+//! $ cargo run --example update-entity task 701173 color '0,0,0'
 //! ```
+//! This example only does string or int types for the value.
 
 use serde_json::{json, Value};
-use shotgun_rs::structs::{
-    Grouping, GroupingDirection, GroupingType, SummaryField, SummaryFieldType,
-};
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -35,11 +35,12 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let project_id: i32 = env::args()
-        .nth(1)
-        .expect("must specify a project id")
-        .parse()
-        .expect("invalid project id");
+    let entity: Option<String> = env::args().nth(1);
+    let entity_id: Option<i32> = env::args()
+        .nth(2)
+        .and_then(|s| Some(s.parse().expect("Entity ID")));
+    let field_name: Option<String> = env::args().nth(3);
+    let value: Option<String> = env::args().nth(4);
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
@@ -48,24 +49,14 @@ async fn main() -> shotgun_rs::Result<()> {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
+    let data: Value = json!({
+        field_name.unwrap(): value.unwrap()
+    });
+
     let resp: Value = sg
-        .summarize(
-            &token,
-            "Asset",
-            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
-            Some(vec![SummaryField {
-                field: "id".to_string(),
-                r#type: SummaryFieldType::Count,
-            }]),
-            Some(vec![Grouping {
-                field: "sg_asset_type".to_string(),
-                r#type: GroupingType::Exact,
-                direction: Some(GroupingDirection::Asc),
-            }]),
-            None,
-        )
+        .update(&token, &entity.unwrap(), entity_id.unwrap(), data)
         .await?;
 
-    println!("{}", resp);
+    println!("{:?}", resp);
     Ok(())
 }

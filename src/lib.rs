@@ -47,6 +47,14 @@ pub use reqwest::{Certificate, Client};
 
 use std::borrow::Cow;
 
+pub mod structs;
+
+use crate::structs::{
+    ErrorObject, ErrorResponse, Grouping, OptionsParameter, PaginationParameter, ReturnOnly,
+    SummarizeRequest, SummaryField, SummaryOptions,
+};
+use std::collections::HashMap;
+
 pub type Result<T> = std::result::Result<T, ShotgunError>;
 
 /// Get a default http client with ca certs added to it if specified via env var.
@@ -116,22 +124,6 @@ pub struct Shotgun {
     script_name: Option<String>,
     /// API User (aka "script") secret key, used to generate API Tokens.
     script_key: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct ErrorResponse {
-    errors: Vec<ErrorObject>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct ErrorObject {
-    pub id: Option<String>,
-    pub status: Option<i64>,
-    pub code: Option<i64>,
-    pub title: Option<String>,
-    pub detail: Option<String>,
-    pub source: Option<serde_json::Map<String, Value>>,
-    pub meta: Option<serde_json::Map<String, Value>>,
 }
 
 pub struct SearchBuilder<'a> {
@@ -405,6 +397,67 @@ impl Shotgun {
         }
     }
 
+    /// Read the work day rules for each day specified in the query.
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-work-day-rules>
+    pub async fn work_days_rules_read<D: 'static>(
+        &self,
+        token: &str,
+        start_date: &str,
+        end_date: &str,
+        project_id: Option<i32>,
+        user_id: Option<i32>,
+    ) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/schedule/work_day_rules?start_date={}&end_date={}",
+                self.sg_server, start_date, end_date
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(pid) = project_id {
+            req = req.query(&[("project_id", pid)]);
+        }
+
+        if let Some(uid) = user_id {
+            req = req.query(&[("user_id", uid)])
+        }
+
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides the values of a subset of site preferences.
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-preferences>
+    pub async fn preferences_read<D: 'static>(&self, token: &str) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let req = self
+            .client
+            .get(&format!("{}/api/v1/preferences", self.sg_server))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides version information about the Shotgun server and the REST API.
+    /// Does not require authentication
+    pub async fn info<D: 'static>(&self) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let req = self
+            .client
+            .get(&format!("{}/api/v1/", self.sg_server))
+            .header("Accept", "application/json");
+
+        handle_response(req.send().await?).await
+    }
+
     pub async fn schema_read<D: 'static>(&self, token: &str, project_id: Option<i32>) -> Result<D>
         where
             D: DeserializeOwned,
@@ -412,6 +465,30 @@ impl Shotgun {
         let mut req = self
             .client
             .get(&format!("{}/api/v1/schema", self.sg_server))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(id) = project_id {
+            req = req.query(&[("project_id", id)]);
+        }
+        handle_response(req.send().await?).await
+    }
+
+    /// Return schema information for the given entity.
+    /// Entity should be a snake cased version of the entity name.
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-schema-for-a-single-entity>
+    pub async fn schema_entity_read<D: 'static>(
+        &self,
+        token: &str,
+        project_id: Option<i32>,
+        entity: &str,
+    ) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!("{}/api/v1/schema/{}", self.sg_server, entity))
             .bearer_auth(token)
             .header("Accept", "application/json");
 
@@ -472,6 +549,171 @@ impl Shotgun {
 
         if let Some(id) = project_id {
             req = req.query(&[("project_id", id)]);
+        }
+
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides access to the list of users that follow an entity.
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-entity-followers>
+    pub async fn entity_followers_read<D: 'static>(
+        &self,
+        token: &str,
+        entity: &str,
+        entity_id: i32,
+    ) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/entity/{}/{}/followers",
+                self.sg_server, entity, entity_id
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides access to the list of entities a user follows.
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-user-follows>
+    pub async fn user_follows_read<D: 'static>(&self, token: &str, user_id: i32) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/entity/human_users/{}/following",
+                self.sg_server, user_id
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides access to the thread content of an entity. Currently only note is supported.
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-the-thread-contents-for-a-note>
+    pub async fn thread_contents_read<D: 'static>(
+        &self,
+        token: &str,
+        note_id: i32,
+        entity_fields: Option<HashMap<String, String>>,
+    ) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/entity/notes/{}/thread_contents",
+                self.sg_server, note_id
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(fields) = entity_fields {
+            req = req.query(&[("entity_fields", fields)])
+        }
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides access to records related to the current entity record via the entity or multi-entity field.
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-record-relationship>
+    pub async fn entity_relationship_read<D: 'static>(
+        &self,
+        token: &str,
+        entity: &str,
+        entity_id: i32,
+        related_field: &str,
+        options: Option<OptionsParameter>,
+    ) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/entity/{}/{}/relationships/{}",
+                self.sg_server, entity, entity_id, related_field
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+        if let Some(opts) = options {
+            if let Some(val) = opts.include_archived_projects {
+                req = req.query(&[("options[include_archived_projects]", val)]);
+            }
+            if let Some(val) = opts.return_only {
+                req = req.query(&[(
+                    "options[return_only]",
+                    match val {
+                        ReturnOnly::Active => "active",
+                        ReturnOnly::Retired => "retired",
+                    },
+                )]);
+            }
+        }
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides the information for where an upload should be sent and how to connect the upload
+    /// to an entity once it has been uploaded.
+    /// <https://developer.shotgunsoftware.com/rest-api/#get-upload-url-for-record>
+    pub async fn entity_upload_url_read<D: 'static>(
+        &self,
+        token: &str,
+        entity: &str,
+        entity_id: i32,
+        filename: &str,
+        multipart_upload: Option<bool>,
+    ) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/entity/{}/{}/_upload?filename={}",
+                self.sg_server, entity, entity_id, filename
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(val) = multipart_upload {
+            req = req.query(&[("multipart_upload", val)]);
+        }
+
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides the information for where an upload should be sent and how to connect the upload
+    /// to a field once it has been uploaded.
+    /// <https://developer.shotgunsoftware.com/rest-api/#get-upload-url-for-field>
+    pub async fn entity_field_upload_url_read<D: 'static>(
+        &self,
+        token: &str,
+        entity: &str,
+        entity_id: i32,
+        file_name: &str,
+        field_name: &str,
+        multipart_upload: Option<bool>,
+    ) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/entity/{}/{}/{}/_upload?filename={}",
+                self.sg_server, entity, entity_id, field_name, file_name
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(val) = multipart_upload {
+            req = req.query(&[("multipart_upload", val)]);
         }
 
         handle_response(req.send().await?).await
@@ -600,6 +842,24 @@ impl Shotgun {
         }
     }
 
+    /// Revive an entity.
+    /// <https://developer.shotgunsoftware.com/rest-api/#revive-a-record>
+    pub async fn revive<D: 'static>(&self, token: &str, entity: &str, entity_id: i32) -> Result<D>
+    where
+        D: DeserializeOwned,
+    {
+        let req = self
+            .client
+            .post(&format!(
+                "{}/api/v1/entity/{}/{}?revive=true",
+                self.sg_server, entity, entity_id
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        handle_response(req.send().await?).await
+    }
+
     /// Find a list of entities matching some filter criteria.
     ///
     /// Search provides access to the Shotgun filter APIs, serving the same use cases as
@@ -725,135 +985,6 @@ impl Shotgun {
     }
 }
 
-/// Request body of a summarize query.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct SummarizeRequest {
-    /// Filters used to perform the initial search for things you will be
-    /// aggregating.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    filters: Option<Value>,
-
-    /// Summary fields represent the calculated values produced per
-    /// grouping.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    summary_fields: Option<Vec<SummaryField>>,
-
-    /// Groupings for aggregate operations. These are what you are
-    /// _aggregating by_.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    grouping: Option<Vec<Grouping>>,
-
-    /// Options for the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    options: Option<SummaryOptions>,
-}
-
-/// The type of calculation to summarize.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum SummaryFieldType {
-    #[serde(rename = "record_count")]
-    RecordCount,
-    #[serde(rename = "count")]
-    Count,
-    #[serde(rename = "sum")]
-    Sum,
-    #[serde(rename = "maximum")]
-    Max,
-    #[serde(rename = "minimum")]
-    Min,
-    #[serde(rename = "average")]
-    Avg,
-    #[serde(rename = "earliest")]
-    Earliest,
-    #[serde(rename = "latest")]
-    Latest,
-    #[serde(rename = "percentage")]
-    Percentage,
-    #[serde(rename = "status_percentage")]
-    StatusPercentage,
-    #[serde(rename = "status_list")]
-    StatusList,
-    #[serde(rename = "checked")]
-    Checked,
-    #[serde(rename = "unchecked")]
-    Unchecked,
-}
-
-/// How to perform the grouping for a given summary request.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum GroupingType {
-    #[serde(rename = "exact")]
-    Exact,
-    #[serde(rename = "tens")]
-    Tens,
-    #[serde(rename = "hundreds")]
-    Hundreds,
-    #[serde(rename = "thousands")]
-    Thousands,
-    #[serde(rename = "tensofthousands")]
-    TensOfThousands,
-    #[serde(rename = "hundredsofthousands")]
-    HundredsOfThousands,
-    #[serde(rename = "millions")]
-    Millions,
-    #[serde(rename = "day")]
-    Day,
-    #[serde(rename = "week")]
-    Week,
-    #[serde(rename = "month")]
-    Month,
-    #[serde(rename = "quarter")]
-    Quarter,
-    #[serde(rename = "year")]
-    Year,
-    #[serde(rename = "clustered_date")]
-    ClusteredDate,
-    #[serde(rename = "oneday")]
-    OneDay,
-    #[serde(rename = "fivedays")]
-    FiveDays,
-    #[serde(rename = "entitytype")]
-    EntityType,
-    #[serde(rename = "firstletter")]
-    FirstLetter,
-}
-
-/// Direction to order a summary grouping.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum GroupingDirection {
-    #[serde(rename = "asc")]
-    Asc,
-    #[serde(rename = "desc")]
-    Desc,
-}
-
-/// A summary field consists of a concrete field on an entity and a summary
-/// operation to use to aggregate it as part of a summary request.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct SummaryField {
-    pub field: String,
-    pub r#type: SummaryFieldType,
-}
-
-/// A grouping for a summary request.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct Grouping {
-    /// The field to group by.
-    pub field: String,
-    /// The aggregate operation to use to derive the grouping.
-    pub r#type: GroupingType,
-    /// The direction to order the grouping (ASC or DESC).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub direction: Option<GroupingDirection>,
-}
-
-/// Options for a summary request.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct SummaryOptions {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_archived_projects: Option<bool>,
-}
-
 /// Checks to see if the `Value` is an object with a top level "errors" key.
 fn contains_errors(value: &Value) -> bool {
     value
@@ -922,46 +1053,6 @@ async fn handle_response<D>(resp: Response) -> Result<D>
                 // case 3 - either we get the shape we want or we get an error
                 serde_json::from_value::<D>(v).map_err(ShotgunError::from)
             }
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum ReturnOnly {
-    Active,
-    Retired,
-}
-
-#[derive(Clone, Debug)]
-pub struct OptionsParameter {
-    pub return_only: Option<ReturnOnly>,
-    pub include_archived_projects: Option<bool>,
-}
-
-impl Default for OptionsParameter {
-    fn default() -> Self {
-        Self {
-            return_only: None,
-            include_archived_projects: None,
-        }
-    }
-}
-
-/// This controls the paging of search-style list API calls.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PaginationParameter {
-    ///  Pages start at 1, not 0.
-    pub number: Option<usize>,
-    /// Shotgun's default currently is 500
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<usize>,
-}
-
-impl Default for PaginationParameter {
-    fn default() -> Self {
-        Self {
-            number: None,
-            size: None,
         }
     }
 }

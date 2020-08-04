@@ -21,7 +21,8 @@
 //! ```
 
 use serde_json::{json, Value};
-use shotgun_rs::{Grouping, GroupingType, Shotgun, SummaryField, SummaryFieldType};
+use shotgun_rs::structs::{Grouping, GroupingType, SummaryField, SummaryFieldType};
+use shotgun_rs::Shotgun;
 use std::env;
 
 #[tokio::main]

@@ -1,4 +1,6 @@
-//! Small example program that prints out a table of projects. For this to work you must set 3 env
+//! Small example program that prints out the entities that a user is following.
+//!
+//! For this to work you must set 3 env
 //! vars, `SG_SERVER`, `SG_SCRIPT_NAME`, and `SG_SCRIPT_KEY`.
 //!
 //! Set the `SG_SERVER` environment variable to the url for your shotgun server, eg:
@@ -17,13 +19,10 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example summarize-project-assets <project id>
+//! $ cargo run --example user-follows-read 1600
 //! ```
 
-use serde_json::{json, Value};
-use shotgun_rs::structs::{
-    Grouping, GroupingDirection, GroupingType, SummaryField, SummaryFieldType,
-};
+use serde_json::Value;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -35,11 +34,10 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let project_id: i32 = env::args()
-        .nth(1)
-        .expect("must specify a project id")
-        .parse()
-        .expect("invalid project id");
+    let user_id: Option<i32> = env::args()
+        .skip(1)
+        .next()
+        .and_then(|s| Some(s.parse().expect("User ID")));
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
@@ -48,24 +46,10 @@ async fn main() -> shotgun_rs::Result<()> {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
-    let resp: Value = sg
-        .summarize(
-            &token,
-            "Asset",
-            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
-            Some(vec![SummaryField {
-                field: "id".to_string(),
-                r#type: SummaryFieldType::Count,
-            }]),
-            Some(vec![Grouping {
-                field: "sg_asset_type".to_string(),
-                r#type: GroupingType::Exact,
-                direction: Some(GroupingDirection::Asc),
-            }]),
-            None,
-        )
-        .await?;
+    let resp: Value = sg.user_follows_read(&token, user_id.unwrap()).await?;
 
-    println!("{}", resp);
+    for entry in resp["data"].as_array().expect("response decode") {
+        println!("{}", entry);
+    }
     Ok(())
 }
