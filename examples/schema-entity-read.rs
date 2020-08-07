@@ -25,8 +25,8 @@
 //! ```text
 //! $ cargo run --example schema-entity-read [project_id] 'custom_non_project_entity_01'
 //! ```
-
 use serde_json::Value;
+use shotgun_rs::types::SchemaEntityResponse;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -52,12 +52,10 @@ async fn main() -> shotgun_rs::Result<()> {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
-    let resp: Value = sg
+    let resp: SchemaEntityResponse = sg
         .schema_entity_read(&token, project_id, &entity.unwrap())
         .await?;
 
-    for key in resp["data"].as_object().expect("response decode").keys() {
-        println!("{}: {}", key, resp["data"][key]);
-    }
+    println!("{:?}", resp);
     Ok(())
 }

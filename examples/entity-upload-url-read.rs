@@ -23,6 +23,7 @@
 //! ```
 
 use serde_json::Value;
+use shotgun_rs::types::UploadInfoResponse;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -52,7 +53,7 @@ async fn main() -> shotgun_rs::Result<()> {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
-    let resp: Value = sg
+    let resp: UploadInfoResponse = sg
         .entity_upload_url_read(
             &token,
             &entity.unwrap(),
@@ -65,21 +66,8 @@ async fn main() -> shotgun_rs::Result<()> {
         )
         .await?;
 
-    for key in resp["data"]
-        .as_object()
-        .expect("response decode data")
-        .keys()
-    {
-        println!("{}: {}", key, resp["data"][key]);
-    }
-
-    for key in resp["links"]
-        .as_object()
-        .expect("response decode links")
-        .keys()
-    {
-        println!("{}: {}", key, resp["links"][key]);
-    }
+    println!("Data: {:?}", resp.data);
+    println!("Links: {:?}", resp.links);
 
     Ok(())
 }

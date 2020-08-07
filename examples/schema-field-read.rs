@@ -23,6 +23,7 @@
 //! ```
 
 use serde_json::Value;
+use shotgun_rs::types::SchemaFieldResponse;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -52,11 +53,11 @@ async fn main() -> shotgun_rs::Result<()> {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
-    let resp: Value = sg
+    let resp: SchemaFieldResponse = sg
         .schema_field_read(&token, project_id, &entity.unwrap(), &field_name.unwrap())
         .await?;
-    for key in resp["data"].as_object().expect("response decode").keys() {
-        println!("{}: {}", key, resp["data"][key]);
-    }
+    println!("Data: {:?}", resp.data);
+    println!("Links: {:?}", resp.links);
+
     Ok(())
 }

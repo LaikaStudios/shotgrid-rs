@@ -21,7 +21,7 @@
 //! ```
 
 use serde_json::{json, Value};
-use shotgun_rs::structs::{
+use shotgun_rs::types::{
     Grouping, GroupingDirection, GroupingType, SummaryField, SummaryFieldType,
 };
 use shotgun_rs::Shotgun;

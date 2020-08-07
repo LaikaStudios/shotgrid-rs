@@ -47,11 +47,12 @@ pub use reqwest::{Certificate, Client};
 
 use std::borrow::Cow;
 
-pub mod structs;
+pub mod types;
 
-use crate::structs::{
-    ErrorObject, ErrorResponse, Grouping, OptionsParameter, PaginationParameter, ReturnOnly,
-    SummarizeRequest, SummaryField, SummaryOptions,
+use crate::types::{
+    BatchedRequestsResponse, ErrorObject, ErrorResponse, Grouping, OptionsParameter,
+    PaginationParameter, ReturnOnly, SchemaEntityResponse, SchemaFieldResponse,
+    SchemaFieldsResponse, SummarizeRequest, SummaryField, SummaryOptions, UploadInfoResponse,
 };
 use std::collections::HashMap;
 
@@ -397,6 +398,20 @@ impl Shotgun {
         }
     }
 
+    /// Provides version information about the Shotgun server and the REST API.
+    /// Does not require authentication
+    pub async fn info<D: 'static>(&self) -> Result<D>
+        where
+            D: DeserializeOwned,
+    {
+        let mut req = self
+            .client
+            .get(&format!("{}/api/v1/", self.sg_server))
+            .header("Accept", "application/json");
+
+        handle_response(req.send().await?).await
+    }
+
     /// Read the work day rules for each day specified in the query.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-work-day-rules>
     pub async fn work_days_rules_read<D: 'static>(
@@ -407,8 +422,8 @@ impl Shotgun {
         project_id: Option<i32>,
         user_id: Option<i32>,
     ) -> Result<D>
-    where
-        D: DeserializeOwned,
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -433,28 +448,14 @@ impl Shotgun {
     /// Provides the values of a subset of site preferences.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-preferences>
     pub async fn preferences_read<D: 'static>(&self, token: &str) -> Result<D>
-    where
-        D: DeserializeOwned,
+        where
+            D: DeserializeOwned,
     {
         let req = self
             .client
             .get(&format!("{}/api/v1/preferences", self.sg_server))
             .bearer_auth(token)
             .header("Accept", "application/json");
-        handle_response(req.send().await?).await
-    }
-
-    /// Provides version information about the Shotgun server and the REST API.
-    /// Does not require authentication
-    pub async fn info<D: 'static>(&self) -> Result<D>
-    where
-        D: DeserializeOwned,
-    {
-        let req = self
-            .client
-            .get(&format!("{}/api/v1/", self.sg_server))
-            .header("Accept", "application/json");
-
         handle_response(req.send().await?).await
     }
 
@@ -477,15 +478,12 @@ impl Shotgun {
     /// Return schema information for the given entity.
     /// Entity should be a snake cased version of the entity name.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-schema-for-a-single-entity>
-    pub async fn schema_entity_read<D: 'static>(
+    pub async fn schema_entity_read(
         &self,
         token: &str,
         project_id: Option<i32>,
         entity: &str,
-    ) -> Result<D>
-    where
-        D: DeserializeOwned,
-    {
+    ) -> Result<SchemaEntityResponse> {
         let mut req = self
             .client
             .get(&format!("{}/api/v1/schema/{}", self.sg_server, entity))
@@ -501,15 +499,12 @@ impl Shotgun {
     /// Return all schema field information for a given entity.
     /// Entity should be a snake cased version of the entity name.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-all-field-schemas-for-an-entity>
-    pub async fn schema_fields_read<D: 'static>(
+    pub async fn schema_fields_read(
         &self,
         token: &str,
         project_id: Option<i32>,
         entity: &str,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
+    ) -> Result<SchemaFieldsResponse> {
         let mut req = self
             .client
             .get(&format!(
@@ -528,16 +523,13 @@ impl Shotgun {
     /// Returns schema information about a specific field on a given entity.
     /// Entity should be a snaked cased version of the entity name.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-one-field-schema-for-an-entity>
-    pub async fn schema_field_read<D: 'static>(
+    pub async fn schema_field_read(
         &self,
         token: &str,
         project_id: Option<i32>,
         entity: &str,
         field_name: &str,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
+    ) -> Result<SchemaFieldResponse> {
         let mut req = self
             .client
             .get(&format!(
@@ -562,8 +554,8 @@ impl Shotgun {
         entity: &str,
         entity_id: i32,
     ) -> Result<D>
-    where
-        D: DeserializeOwned,
+        where
+            D: DeserializeOwned,
     {
         let req = self
             .client
@@ -579,8 +571,8 @@ impl Shotgun {
     /// Provides access to the list of entities a user follows.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-user-follows>
     pub async fn user_follows_read<D: 'static>(&self, token: &str, user_id: i32) -> Result<D>
-    where
-        D: DeserializeOwned,
+        where
+            D: DeserializeOwned,
     {
         let req = self
             .client
@@ -602,8 +594,8 @@ impl Shotgun {
         note_id: i32,
         entity_fields: Option<HashMap<String, String>>,
     ) -> Result<D>
-    where
-        D: DeserializeOwned,
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -630,8 +622,8 @@ impl Shotgun {
         related_field: &str,
         options: Option<OptionsParameter>,
     ) -> Result<D>
-    where
-        D: DeserializeOwned,
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -661,17 +653,14 @@ impl Shotgun {
     /// Provides the information for where an upload should be sent and how to connect the upload
     /// to an entity once it has been uploaded.
     /// <https://developer.shotgunsoftware.com/rest-api/#get-upload-url-for-record>
-    pub async fn entity_upload_url_read<D: 'static>(
+    pub async fn entity_upload_url_read(
         &self,
         token: &str,
         entity: &str,
         entity_id: i32,
         filename: &str,
         multipart_upload: Option<bool>,
-    ) -> Result<D>
-    where
-        D: DeserializeOwned,
-    {
+    ) -> Result<UploadInfoResponse> {
         let mut req = self
             .client
             .get(&format!(
@@ -700,8 +689,8 @@ impl Shotgun {
         field_name: &str,
         multipart_upload: Option<bool>,
     ) -> Result<D>
-    where
-        D: DeserializeOwned,
+        where
+            D: DeserializeOwned,
     {
         let mut req = self
             .client
@@ -720,10 +709,7 @@ impl Shotgun {
     }
 
     /// Batch execute requests
-    pub async fn batch<D: 'static>(&self, token: &str, data: Value) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
+    pub async fn batch(&self, token: &str, data: Value) -> Result<BatchedRequestsResponse> {
         let req = self
             .client
             .post(&format!("{}/api/v1/entity/_batch", self.sg_server))
@@ -845,8 +831,8 @@ impl Shotgun {
     /// Revive an entity.
     /// <https://developer.shotgunsoftware.com/rest-api/#revive-a-record>
     pub async fn revive<D: 'static>(&self, token: &str, entity: &str, entity_id: i32) -> Result<D>
-    where
-        D: DeserializeOwned,
+        where
+            D: DeserializeOwned,
     {
         let req = self
             .client

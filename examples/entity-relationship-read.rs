@@ -30,7 +30,7 @@
 //!
 
 use serde_json::{json, Value};
-use shotgun_rs::structs::{OptionsParameter, ReturnOnly};
+use shotgun_rs::types::{OptionsParameter, ReturnOnly};
 use shotgun_rs::Shotgun;
 use std::env;
 
