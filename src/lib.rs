@@ -1448,6 +1448,7 @@ mod mock_tests {
             Err(ShotgunError::ServerError(errors)) => {
                 let details = &errors[0];
                 assert_eq!("xxxxx", details.id.as_ref().unwrap());
+                assert_eq!("Shotgun Server Error", details.title.as_ref().unwrap());
                 assert_eq!(500, details.status.unwrap());
                 assert_eq!(100, details.code.unwrap());
                 assert!(details.source.is_none());
