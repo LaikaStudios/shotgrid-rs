@@ -34,11 +34,8 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let entity: Option<String> = env::args().skip(1).next().and_then(|s| Some(s));
-    let entity_id: Option<i32> = env::args()
-        .skip(2)
-        .next()
-        .and_then(|s| Some(s.parse().expect("Entity ID")));
+    let entity: Option<String> = env::args().nth(1);
+    let entity_id: Option<i32> = env::args().nth(2).map(|s| s.parse().expect("Entity ID"));
     println!(
         "Attempting to read followers for the {:?} {:?}",
         entity, entity_id

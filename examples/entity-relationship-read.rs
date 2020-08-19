@@ -16,12 +16,6 @@
 //! export CA_BUNDLE=/etc/ssl/my-ca-certs.crt
 //! ```
 //!
-//! Usage:
-//!
-//! ```text
-//! $ cargo run --example schema-entity-read [project_id] 'task'
-//! ```
-//!
 //! ```text
 //! $ cargo run --example entity-relationship-read asset 1234 sg_assets_1
 //! ```
@@ -29,7 +23,7 @@
 //! This example does not take any arguments for the optional parameters.
 //!
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use shotgun_rs::types::{OptionsParameter, ReturnOnly};
 use shotgun_rs::Shotgun;
 use std::env;
@@ -41,12 +35,9 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let entity: Option<String> = env::args().skip(1).next().and_then(|s| Some(s));
-    let entity_id: Option<i32> = env::args()
-        .skip(2)
-        .next()
-        .and_then(|s| Some(s.parse().expect("Entity ID")));
-    let related_field: Option<String> = env::args().skip(3).next().and_then(|s| Some(s));
+    let entity: Option<String> = env::args().nth(1);
+    let entity_id: Option<i32> = env::args().nth(2).map(|s| s.parse().expect("Entity ID"));
+    let related_field: Option<String> = env::args().nth(3);
 
     println!(
         "Attempting to read {:?} {:?} for field {:?}",

@@ -50,9 +50,11 @@ use std::borrow::Cow;
 pub mod types;
 
 use crate::types::{
-    BatchedRequestsResponse, ErrorObject, ErrorResponse, Grouping, OptionsParameter,
-    PaginationParameter, ReturnOnly, SchemaEntityResponse, SchemaFieldResponse,
-    SchemaFieldsResponse, SummarizeRequest, SummaryField, SummaryOptions, UploadInfoResponse,
+    AltImages, BatchedRequestsResponse, CreateFieldRequest, EntityActivityStreamResponse,
+    EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, Grouping, OptionsParameter,
+    PaginationParameter, ProjectAccessUpdateResponse, ReturnOnly, SchemaEntityResponse,
+    SchemaFieldResponse, SchemaFieldsResponse, SummarizeRequest, SummaryField, SummaryOptions,
+    UpdateFieldRequest, UploadInfoResponse,
 };
 use std::collections::HashMap;
 
@@ -398,13 +400,27 @@ impl Shotgun {
         }
     }
 
+    /// Provides the values of a subset of site preferences.
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-preferences>
+    pub async fn preferences_read<D: 'static>(&self, token: &str) -> Result<D>
+        where
+            D: DeserializeOwned,
+    {
+        let req = self
+            .client
+            .get(&format!("{}/api/v1/preferences", self.sg_server))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+        handle_response(req.send().await?).await
+    }
+
     /// Provides version information about the Shotgun server and the REST API.
     /// Does not require authentication
     pub async fn info<D: 'static>(&self) -> Result<D>
         where
             D: DeserializeOwned,
     {
-        let mut req = self
+        let req = self
             .client
             .get(&format!("{}/api/v1/", self.sg_server))
             .header("Accept", "application/json");
@@ -442,20 +458,6 @@ impl Shotgun {
             req = req.query(&[("user_id", uid)])
         }
 
-        handle_response(req.send().await?).await
-    }
-
-    /// Provides the values of a subset of site preferences.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-preferences>
-    pub async fn preferences_read<D: 'static>(&self, token: &str) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let req = self
-            .client
-            .get(&format!("{}/api/v1/preferences", self.sg_server))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
         handle_response(req.send().await?).await
     }
 
@@ -520,6 +522,90 @@ impl Shotgun {
         handle_response(req.send().await?).await
     }
 
+    /// Create a new field on the given entity
+    /// <https://developer.shotgunsoftware.com/rest-api/#create-new-field-on-entity>
+    pub async fn schema_field_create(
+        &self,
+        token: &str,
+        entity_type: &str,
+        data: &CreateFieldRequest,
+    ) -> Result<SchemaFieldResponse> {
+        let req = self
+            .client
+            .post(&format!(
+                "{}/api/v1/schema/{}/fields",
+                self.sg_server, entity_type,
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(&json!(data));
+
+        handle_response(req.send().await?).await
+    }
+
+    /// Delete a field on a given entity
+    /// <https://developer.shotgunsoftware.com/rest-api/#delete-one-field-from-an-entity>
+    pub async fn schema_field_delete(
+        &self,
+        token: &str,
+        entity_type: &str,
+        field_name: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/api/v1/schema/{}/fields/{}",
+            self.sg_server, entity_type, field_name
+        );
+        let req = self
+            .client
+            .delete(&url)
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+
+        if req.status().is_success() {
+            Ok(())
+        } else {
+            Err(ShotgunError::Unexpected(format!(
+                "Server responded to `DELETE {}` with `{}`",
+                &url,
+                req.status()
+            )))
+        }
+    }
+
+    /// Revive one field from an entity.
+    /// <https://developer.shotgunsoftware.com/rest-api/#revive-one-field-from-an-entity>
+    pub async fn schema_field_revive(
+        &self,
+        token: &str,
+        entity_type: &str,
+        field_name: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/api/v1/schema/{}/fields/{}?revive=true",
+            self.sg_server, entity_type, field_name
+        );
+
+        let req = self
+            .client
+            .post(&url)
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+
+        if req.status().is_success() {
+            Ok(())
+        } else {
+            Err(ShotgunError::Unexpected(format!(
+                "Server responded to `POST {}` with `{}`",
+                &url,
+                req.status()
+            )))
+        }
+    }
+
     /// Returns schema information about a specific field on a given entity.
     /// Entity should be a snaked cased version of the entity name.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-one-field-schema-for-an-entity>
@@ -546,6 +632,47 @@ impl Shotgun {
         handle_response(req.send().await?).await
     }
 
+    /// Update the properties of a field on an entity
+    /// <https://developer.shotgunsoftware.com/rest-api/#revive-one-field-from-an-entity>
+    pub async fn schema_field_update(
+        &self,
+        token: &str,
+        entity_type: &str,
+        field_name: &str,
+        data: &UpdateFieldRequest,
+    ) -> Result<SchemaFieldResponse> {
+        let req = self
+            .client
+            .put(&format!(
+                "{}/api/v1/schema/{}/fields/{}",
+                self.sg_server, entity_type, field_name
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(&json!(data));
+        handle_response(req.send().await?).await
+    }
+
+    /// Provides access to the activity stream of an entity
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-entity-activity-stream>
+    pub async fn entity_activity_stream_read(
+        &self,
+        token: &str,
+        entity_type: &str,
+        entity_id: i32,
+    ) -> Result<EntityActivityStreamResponse> {
+        let req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/entity/{}/{}/activity_stream",
+                self.sg_server, entity_type, entity_id
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        handle_response(req.send().await?).await
+    }
+
     /// Provides access to the list of users that follow an entity.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-entity-followers>
     pub async fn entity_followers_read<D: 'static>(
@@ -566,6 +693,55 @@ impl Shotgun {
             .bearer_auth(token)
             .header("Accept", "application/json");
         handle_response(req.send().await?).await
+    }
+
+    /// Allows a user to follow one or more entities
+    /// <https://developer.shotgunsoftware.com/rest-api/#follow-an-entity>
+    pub async fn entity_follow_update<D: 'static>(
+        &self,
+        token: &str,
+        user_id: i32,
+        entities: Vec<EntityIdentifier>,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
+    {
+        let request = self
+            .client
+            .post(&format!(
+                "{}/api/v1/entity/human_users/{}/follow",
+                self.sg_server, user_id
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(&json!({ "entities": entities }));
+
+        handle_response(request.send().await?).await
+    }
+
+    /// Allows a user to unfollow a single entity.
+    /// <https://developer.shotgunsoftware.com/rest-api/#unfollow-an-entity>
+    pub async fn entity_unfollow_update<D: 'static>(
+        &self,
+        token: &str,
+        user_id: i32,
+        entity_type: &str,
+        entity_id: i32,
+    ) -> Result<D>
+        where
+            D: DeserializeOwned,
+    {
+        let request = self
+            .client
+            .put(&format!(
+                "{}/api/v1/entity/{}/{}/unfollow",
+                self.sg_server, entity_type, entity_id
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(&json!({ "user_id": user_id }));
+
+        handle_response(request.send().await?).await
     }
 
     /// Provides access to the list of entities a user follows.
@@ -607,7 +783,9 @@ impl Shotgun {
             .header("Accept", "application/json");
 
         if let Some(fields) = entity_fields {
-            req = req.query(&[("entity_fields", fields)])
+            for (key, value) in fields {
+                req = req.query(&[(json!(key), json!(value))]);
+            }
         }
         handle_response(req.send().await?).await
     }
@@ -703,6 +881,38 @@ impl Shotgun {
 
         if let Some(val) = multipart_upload {
             req = req.query(&[("multipart_upload", val)]);
+        }
+
+        handle_response(req.send().await?).await
+    }
+
+    /// Provide access to information about an image or attachment field. You can optionally
+    /// use the alt query parameter to download the associated image or attachment (maybe...)
+    /// <https://developer.shotgunsoftware.com/rest-api/#read-file-field>
+    pub async fn entity_file_field_read(
+        &self,
+        token: &str,
+        entity_type: &str,
+        entity_id: i32,
+        field_name: &str,
+        alt: Option<AltImages>,
+        range: Option<String>,
+    ) -> Result<FieldHashResponse> {
+        let mut req = self
+            .client
+            .get(&format!(
+                "{}/api/v1/entity/{}/{}/{}",
+                self.sg_server, entity_type, entity_id, field_name
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json");
+
+        if let Some(val) = alt {
+            req = req.query(&[("alt", val)]);
+        }
+
+        if let Some(val) = range {
+            req = req.header("Range", &val);
         }
 
         handle_response(req.send().await?).await
@@ -969,6 +1179,27 @@ impl Shotgun {
             .body(json!(body).to_string());
         handle_response(req.send().await?).await
     }
+
+    /// Update the last access time of a project by a user.
+    /// <https://developer.shotgunsoftware.com/rest-api/#tocSbatchedrequestsresponse>
+    pub async fn project_last_accessed_update(
+        &self,
+        token: &str,
+        project_id: i32,
+        user_id: i32,
+    ) -> Result<ProjectAccessUpdateResponse> {
+        let req = self
+            .client
+            .put(&format!(
+                "{}/api/v1/entity/projects/{}/_update_last_accessed",
+                self.sg_server, project_id
+            ))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(&json!({ "user_id": user_id }));
+
+        handle_response(req.send().await?).await
+    }
 }
 
 /// Checks to see if the `Value` is an object with a top level "errors" key.
@@ -1000,7 +1231,7 @@ async fn handle_response<D>(resp: Response) -> Result<D>
     // There are three (3) potential failure modes here:
     //
     // 1. Connection problems could lead to partial/garbled/non-json payload
-    //    resulting in a json parse error.
+    //    resulting in a json parse error. There could also just be no payload for a response, ie 204.
     // 2. The payload could be json, but contain an error message from shotgun about
     //    the filter.
     // 3. The payload might parse as valid json, but the json might not fit the

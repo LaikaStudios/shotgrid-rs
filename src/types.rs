@@ -12,6 +12,15 @@ pub struct ActivityUpdate {
     created_by: Option<serde_json::Map<String, Value>>,
 }
 
+/// Alternate images
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum AltImages {
+    #[serde(rename = "original")]
+    Original,
+    #[serde(rename = "thumbnail")]
+    Thumbnail,
+}
+
 /// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSbatchcreateoptionsparameter>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BatchCreateOptionsParameter {
@@ -391,6 +400,9 @@ impl Default for PasswordRequest {
     }
 }
 
+/// This does not exist as a part of Shotgun's REST API
+pub type ProjectAccessUpdateResponse = SingleResourceResponse<Entity, SelfLink>;
+
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSrecord>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Record {
@@ -430,16 +442,25 @@ pub struct SchemaEntityRecord {
 /// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSschemaentityresponse>
 pub type SchemaEntityResponse = SingleResourceResponse<SchemaEntityRecord, SelfLink>;
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SchemaFieldProperties {
+    pub default_value: Option<SchemaResponseValue>,
+    pub regex_validation: Option<SchemaResponseValue>,
+    pub regex_validation_enabled: Option<SchemaResponseValue>,
+    pub summary_default: Option<SchemaResponseValue>,
+}
+
 /// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSschemafieldrecord>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SchemaFieldRecord {
+    pub custom_metadata: Option<SchemaResponseValue>,
     pub data_type: Option<SchemaResponseValue>,
     pub description: Option<SchemaResponseValue>,
     pub editable: Option<SchemaResponseValue>,
     pub entity_type: Option<SchemaResponseValue>,
     pub mandatory: Option<SchemaResponseValue>,
     pub name: Option<SchemaResponseValue>,
-    pub properties: Option<HashMap<String, SchemaResponseValue>>,
+    pub properties: Option<SchemaFieldProperties>,
     pub ui_value_displayable: Option<SchemaResponseValue>,
     pub unique: Option<SchemaResponseValue>,
     pub visible: Option<SchemaResponseValue>,

@@ -23,7 +23,8 @@
 //! ```
 
 use serde_json::{json, Value};
-use shotgun_rs::{PaginationParameter, Shotgun};
+use shotgun_rs::types::PaginationParameter;
+use shotgun_rs::Shotgun;
 use std::env;
 
 #[tokio::main]
@@ -34,12 +35,10 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let mut args = std::env::args().skip(1);
-
-    let login: String = args.next().expect("login required");
-    let text: String = args.next().expect("search text required");
-    let limit: Option<usize> = args
-        .next()
+    let login: String = env::args().nth(1).expect("login required");
+    let text: String = env::args().nth(2).expect("search text required");
+    let limit: Option<usize> = env::args()
+        .nth(3)
         .map(|s| s.parse().expect("limit must be a number"));
     let page_req = PaginationParameter {
         number: Some(1),

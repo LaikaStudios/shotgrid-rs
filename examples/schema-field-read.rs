@@ -35,14 +35,11 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let project_id: Option<i32> = env::args()
-        .skip(1)
-        .next()
-        .and_then(|s| Some(s.parse().expect("Project ID")));
+    let project_id: Option<i32> = env::args().nth(1).map(|s| s.parse().expect("Project ID"));
 
-    let entity: Option<String> = env::args().skip(2).next().and_then(|s| Some(s));
+    let entity: Option<String> = env::args().nth(2);
 
-    let field_name: Option<String> = env::args().skip(3).next().and_then(|s| Some(s));
+    let field_name: Option<String> = env::args().nth(3);
 
     println!("Attempting to read {:?} on {:?}", field_name, entity);
 

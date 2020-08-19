@@ -16,12 +16,6 @@
 //! export CA_BUNDLE=/etc/ssl/my-ca-certs.crt
 //! ```
 //!
-//! Usage:
-//!
-//! ```text
-//! $ cargo run --example schema-entity-read [project_id] 'task'
-//! ```
-//!
 //! ```text
 //! $ cargo run --example thread-contents-read 14857
 //! ```
@@ -29,8 +23,9 @@
 //! This example does not take any arguments for the EntityFieldsParameter.
 //!
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use shotgun_rs::Shotgun;
+use std::collections::HashMap;
 use std::env;
 
 #[tokio::main]
@@ -40,10 +35,7 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let note_id: Option<i32> = env::args()
-        .skip(1)
-        .next()
-        .and_then(|s| Some(s.parse().expect("Note ID")));
+    let note_id: Option<i32> = env::args().nth(1).map(|s| s.parse().expect("Note ID"));
 
     println!("Attempting to read note: {:?}", note_id);
 
@@ -54,15 +46,14 @@ async fn main() -> shotgun_rs::Result<()> {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
-    let fields: Value = json!({
-        "entity_fields[assets]": "*",
-        "entity_fields[shots]": "*"
-    });
+    let mut fields: HashMap<String, String> = HashMap::new();
+
+    fields.insert("entity_fields[Asset]".to_string(), "user".to_string());
+    fields.insert("entity_fields[Note]".to_string(), "user".to_string());
 
     let resp: Value = sg
-        .thread_contents_read(&token, note_id.unwrap(), Some(&fields))
+        .thread_contents_read(&token, note_id.unwrap(), Some(fields))
         .await?;
-    println!("{}", resp);
 
     for entry in resp["data"].as_array().expect("response decode") {
         println!("{}", entry);

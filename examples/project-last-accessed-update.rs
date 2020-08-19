@@ -1,4 +1,4 @@
-//! Small example program that prints out the list of entity types for a given project.
+//! Small example program that updates the last accessed user of a project.
 //!
 //! For this to work you must set 3 env
 //! vars, `SG_SERVER`, `SG_SCRIPT_NAME`, and `SG_SCRIPT_KEY`.
@@ -19,10 +19,11 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example schema-read [project_id]
+//! $ cargo run --example project-last-accessed-update 123(project id) 1048 (user id)
 //! ```
 
 use serde_json::Value;
+use shotgun_rs::types::ProjectAccessUpdateResponse;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -34,18 +35,29 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let project_id: Option<i32> = env::args().nth(1).map(|s| s.parse().expect("proj id"));
+    let project_id: Option<i32> = env::args()
+        .nth(1)
+        .and_then(|s| Some(s.parse().expect("Project ID")));
+    let user_id: Option<i32> = env::args()
+        .nth(2)
+        .and_then(|s| Some(s.parse().expect("User ID")));
 
-    let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    println!(
+        "Attempting to set project {:?} last accessed property to this user: {:?}",
+        project_id, user_id
+    );
 
+    let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG client");
     let token = {
         let resp: Value = sg.authenticate_script().await?;
         resp["access_token"].as_str().unwrap().to_string()
     };
 
-    let resp: Value = sg.schema_read(&token, project_id).await?;
-    for key in resp["data"].as_object().expect("response decode").keys() {
-        println!("{}", key);
-    }
+    let resp: ProjectAccessUpdateResponse = sg
+        .project_last_accessed_update(&token, project_id.unwrap(), user_id.unwrap())
+        .await?;
+    println!("Data: {:?}", resp.data);
+    println!("Links: {:?}", resp.links);
+
     Ok(())
 }

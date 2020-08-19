@@ -1,4 +1,4 @@
-//! Small example program that prints out the list of entity types for a given project.
+//! Small example program that makes a user unfollow an entity.
 //!
 //! For this to work you must set 3 env
 //! vars, `SG_SERVER`, `SG_SCRIPT_NAME`, and `SG_SCRIPT_KEY`.
@@ -19,7 +19,7 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example schema-read [project_id]
+//! $ cargo run --example entity-unfollow-update 1023 task 123456
 //! ```
 
 use serde_json::Value;
@@ -34,7 +34,14 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let project_id: Option<i32> = env::args().nth(1).map(|s| s.parse().expect("proj id"));
+    let user_id: Option<i32> = env::args().nth(1).map(|s| s.parse().expect("User ID"));
+    let entity_type: Option<String> = env::args().nth(2);
+    let entity_id: Option<i32> = env::args().nth(3).map(|s| s.parse().expect("Entity ID"));
+
+    println!(
+        "Attempting to make user {:?} unfollow {:?} {:?}",
+        user_id, entity_type, entity_id
+    );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
@@ -43,9 +50,14 @@ async fn main() -> shotgun_rs::Result<()> {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
-    let resp: Value = sg.schema_read(&token, project_id).await?;
-    for key in resp["data"].as_object().expect("response decode").keys() {
-        println!("{}", key);
-    }
+    sg.entity_unfollow_update(
+        &token,
+        user_id.unwrap(),
+        &entity_type.unwrap(),
+        entity_id.unwrap(),
+    )
+    .await?;
+
+    // Returns 204, nothing to print out
     Ok(())
 }
