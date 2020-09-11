@@ -388,11 +388,12 @@ impl Shotgun {
         entity: &str,
         id: i32,
         data: Value,
+        fields: Option<&str>,
     ) -> Result<D>
         where
             D: DeserializeOwned,
     {
-        let req = self
+        let mut req = self
             .client
             .put(&format!(
                 "{}/api/v1/entity/{}/{}",
@@ -401,6 +402,10 @@ impl Shotgun {
             .bearer_auth(token)
             .header("Accept", "application/json")
             .json(&data);
+
+        if let Some(fields) = fields {
+            req = req.query(&[("options[fields]", fields)]);
+        }
 
         handle_response(req.send().await?).await
     }
