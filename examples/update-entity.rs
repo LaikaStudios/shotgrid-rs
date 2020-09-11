@@ -19,7 +19,7 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example update-entity task 701173 color '0,0,0'
+//! $ cargo run --example update-entity task 701173 color '0,0,0' 'count'
 //! ```
 //! This example only does string or int types for the value.
 
@@ -41,6 +41,7 @@ async fn main() -> shotgun_rs::Result<()> {
         .and_then(|s| Some(s.parse().expect("Entity ID")));
     let field_name: Option<String> = env::args().nth(3);
     let value: Option<String> = env::args().nth(4);
+    let return_fields: Option<String> = env::args().nth(5);
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
@@ -54,7 +55,13 @@ async fn main() -> shotgun_rs::Result<()> {
     });
 
     let resp: Value = sg
-        .update(&token, &entity.unwrap(), entity_id.unwrap(), data)
+        .update(
+            &token,
+            &entity.unwrap(),
+            entity_id.unwrap(),
+            data,
+            Some(&return_fields.unwrap()),
+        )
         .await?;
 
     println!("{:?}", resp);
