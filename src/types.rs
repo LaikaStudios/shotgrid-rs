@@ -352,6 +352,7 @@ impl Default for OptionsParameter {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PaginationParameter {
     ///  Pages start at 1, not 0.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub number: Option<usize>,
     /// Shotgun's default currently is 500
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -361,7 +362,7 @@ pub struct PaginationParameter {
 impl Default for PaginationParameter {
     fn default() -> Self {
         Self {
-            number: None,
+            number: Some(1),
             size: None,
         }
     }

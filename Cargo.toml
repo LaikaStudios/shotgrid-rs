@@ -19,11 +19,12 @@ serde_json = "1.0"
 [dev-dependencies]
 rpassword = "3.0.2"
 prettytable-rs = "0.8.0"
-env_logger = "0.7.1"
+env_logger = "0.7"
 serde_json = "1.0"
-tokio = { version = "0.2.11", features = ["macros"] }
-dotenv = "0.15.0"
-wiremock = "0.2.2"
+tokio = { version = "0.2", features = ["macros"] }
+dotenv = "0.15"
+wiremock = "0.2"
+futures = "0.3"
 
 [features]
 default = ["native-tls"]
@@ -32,3 +33,14 @@ gzip = ["reqwest/gzip"]
 native-tls = ["reqwest/native-tls"]
 native-tls-vendored = ["reqwest/native-tls-vendored"]
 rustls = ["reqwest/rustls-tls"]
+
+# Enable this to allow `cargo test` to run the integration tests.
+# The integration tests also depend on having the following env vars set:
+#
+# - `TEST_SG_SERVER`, the shotgun server to connect to.
+# - `TEST_SG_SCRIPT_NAME`, the name of an ApiUser to connect as.
+# - `TEST_SG_SCRIPT_KEY`, the API key to go with the name.
+# - `TEST_SG_HUMAN_USER_LOGIN`, certain tests require a `HumanUser` so this is
+#   the login to "sudo as" for those tests.
+# - `TEST_SG_PROJECT_ID`, some tests require a project to filter by.
+integration-tests = []

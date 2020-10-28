@@ -97,6 +97,7 @@ fn get_filter_mime(maybe_filters: &Value) -> Result<&'static str> {
 fn get_entity_types_mime(maybe_filters: &Value) -> Result<&'static str> {
     let mut content_type: Option<&str> = None;
     let filters = maybe_filters["entity_types"].as_object();
+    // FIXME: check to make sure there's at least one key in this object.
     if filters.is_none() {
         return Err(ShotgunError::InvalidFilters);
     }
@@ -114,6 +115,7 @@ fn get_entity_types_mime(maybe_filters: &Value) -> Result<&'static str> {
         };
     }
     // Should not panic because we return Err in all other cases
+    // FIXME: this does panic if the "entity_types" key is an empty object
     Ok(content_type.unwrap())
 }
 
@@ -1110,15 +1112,12 @@ impl Shotgun {
         where
             D: DeserializeOwned,
     {
-        let pagination = pagination
-            .or_else(|| Some(PaginationParameter::default()))
-            .unwrap();
-
-        //
         let mut filters = filters.clone();
         {
-            let map = filters.as_object_mut().unwrap();
-            map.insert("page".to_string(), json!(pagination));
+            if let Some(pagination) = pagination {
+                let map = filters.as_object_mut().unwrap();
+                map.insert("page".to_string(), json!(pagination));
+            }
         }
 
         let content_type = match get_entity_types_mime(&filters) {
