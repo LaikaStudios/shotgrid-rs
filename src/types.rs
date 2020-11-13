@@ -1,6 +1,8 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+pub type Filters = Value; // FIXME: SGRS-32 need a more sophisticated representation for filters.
+
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSactivityupdate>
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ActivityUpdate {
@@ -193,7 +195,7 @@ pub struct FollowRecord {
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSgetworkdayrulesresponse>
-pub type GetWorkDayRulesResponse = MultipleResourceResponse<WorkDayRulesData, SelfLink>;
+pub type GetWorkDayRulesResponse = ResourceArrayResponse<WorkDayRulesData, SelfLink>;
 
 /// A grouping for a summary request.
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -272,6 +274,73 @@ pub struct HierarchyExpandRequest {
     pub seed_entity_field: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HierarchyExpandResponseDataRefValue {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HierarchyExpandResponseDataRef {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<HierarchyExpandResponseDataRefValue>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HierarchyExpandResponseDataTargetEntitiesAdditionalFilterPresetSeed {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HierarchyExpandResponseDataTargetEntitiesAdditionalFilterPreset {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preset_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<HierarchyExpandResponseDataTargetEntitiesAdditionalFilterPresetSeed>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HierarchyExpandResponseDataTargetEntities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_filter_presets:
+        Option<Vec<HierarchyExpandResponseDataTargetEntitiesAdditionalFilterPreset>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HierarchyExpandResponseData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#ref: Option<HierarchyExpandResponseDataRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_entities: Option<HierarchyExpandResponseDataTargetEntities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_children: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<HierarchyExpandResponse>>,
+}
+
+/// <https://developer.shotgunsoftware.com/rest-api/#tocShierarchyexpandresponse>
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HierarchyExpandResponse {
+    pub data: Option<HierarchyExpandResponseData>,
+}
+
 /// HierarchyReferenceEntity is not represented as a named schema in the Shotgun OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HierarchyReferenceEntity {
@@ -324,9 +393,18 @@ pub enum LogicalOperator {
 
 /// MultipleResourceResponse is not represented as a named schema in the Shotgun OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct MultipleResourceResponse<R, L> {
+pub struct ResourceArrayResponse<R, L> {
     /// Resource data
     pub data: Option<Vec<R>>,
+    /// Related resource links
+    pub links: Option<L>,
+}
+
+/// Resources stored in a string-keyed map.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ResourceMapResponse<R, L> {
+    /// Resource data
+    pub data: Option<HashMap<String, R>>,
     /// Related resource links
     pub links: Option<L>,
 }
@@ -378,7 +456,7 @@ pub struct PaginationLinks {
     pub prev: Option<String>,
 }
 
-pub type PaginatedRecordResponse = MultipleResourceResponse<Record, PaginationLinks>;
+pub type PaginatedRecordResponse = ResourceArrayResponse<Record, PaginationLinks>;
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSpasswordrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -443,6 +521,9 @@ pub struct SchemaEntityRecord {
 /// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSschemaentityresponse>
 pub type SchemaEntityResponse = SingleResourceResponse<SchemaEntityRecord, SelfLink>;
 
+/// <https://developer.shotgunsoftware.com/rest-api/#tocSschemaentitiesresponse>
+pub type SchemaEntitiesResponse = ResourceMapResponse<SchemaEntityRecord, SelfLink>;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SchemaFieldProperties {
     pub default_value: Option<SchemaResponseValue>,
@@ -486,7 +567,7 @@ pub struct SchemaResponseValue {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SearchRequest {
     /// Either an array of arrays or a FilterHash
-    pub filters: Option<Value>,
+    pub filters: Option<Filters>, // FIXME: SGRS-32 filters need better types
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSselflink>
@@ -519,7 +600,7 @@ pub struct SummarizeRequest {
     /// Filters used to perform the initial search for things you will be
     /// aggregating.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub filters: Option<Value>,
+    pub filters: Option<Filters>, // FIXME: SGRS-32 filters need better types
 
     /// Summary fields represent the calculated values produced per
     /// grouping.
@@ -534,6 +615,39 @@ pub struct SummarizeRequest {
     /// Options for the request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<SummaryOptions>,
+}
+
+// FIXME: `Value` here should be a concrete type that is string, number, bool,
+//  or object (anything but array).
+//  Either that, or we can do `Value` and just advise that the thing is not
+//  going to be an array...
+//  The main thing we get from calling this a hashmap is we enforce the top
+//  level being a map.
+//  We could do some kind of recursive enum deal. Yuck.
+type SummaryMap = HashMap<String, Value>;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SummaryGroups {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summaries: Option<SummaryMap>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SummaryData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summaries: Option<SummaryMap>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groups: Option<Vec<SummaryGroups>>,
+}
+
+/// <https://developer.shotgunsoftware.com/rest-api/#tocSsummarizeresponse>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SummarizeResponse {
+    pub data: SummaryData,
 }
 
 /// A summary field consists of a concrete field on an entity and a summary
@@ -580,6 +694,24 @@ pub enum SummaryFieldType {
 pub struct SummaryOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_archived_projects: Option<bool>,
+}
+
+/// <https://developer.shotgunsoftware.com/rest-api/#tocStextsearchrequest>
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct TextSearchRequest {
+    /// Each `Filters` in this map must be of the same kind (array vs hash).
+    // FIXME: SGRS-32 filters need better types
+    //  We might look at using a generic: TaskSearchRequest<F> to try
+    //  and ensure all the filters are the same kind at compile-time.
+    //  Either that, or we need a fallible constructor to verify the filters
+    //  before this type can be built at runtime.
+    pub entity_types: HashMap<String, Filters>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<PaginationParameter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<String>,
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSupdatefieldrequest>
