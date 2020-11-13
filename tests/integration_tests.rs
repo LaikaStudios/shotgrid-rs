@@ -18,7 +18,9 @@
 
 use serde_json::{json, Value};
 use shotgun_rs::types::{
-    Grouping, GroupingDirection, GroupingType, SummaryField, SummaryFieldType,
+    Entity, Grouping, GroupingDirection, GroupingType, HierarchyEntityFields,
+    HierarchyExpandRequest, HierarchySearchCriteria, HierarchySearchRequest, SummaryField,
+    SummaryFieldType,
 };
 
 mod helpers;
@@ -282,4 +284,75 @@ async fn e2e_test_crud_kitchen_sink() {
     );
 
     helpers::cleanup_entities(&sg, &token, &[("Note", note_id)]).await;
+}
+
+#[tokio::test]
+async fn e2e_test_hierarchy_expand() {
+    let sg = helpers::get_test_client();
+
+    let token = {
+        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
+        resp["access_token"].as_str().unwrap().to_string()
+    };
+
+    let data = HierarchyExpandRequest {
+        // Not sure what I can pass as entity fields to change the
+        // response we get from shotgun, but at least the server accepts
+        // this payload. It just doesn't seem to have any effect.
+        entity_fields: Some(vec![HierarchyEntityFields {
+            entity: Some("Project".to_string()),
+            fields: Some(vec!["tags"].into_iter().map(String::from).collect()),
+        }]),
+        path: "/".to_string(),
+        seed_entity_field: None,
+    };
+
+    sg.hierarchy_expand(&token, data).await.unwrap();
+}
+
+#[tokio::test]
+async fn e2e_test_hierarchy_search_by_string() {
+    let sg = helpers::get_test_client();
+    let login = helpers::get_human_user_login();
+    let token = {
+        let resp: Value = sg
+            .authenticate_script_as_user(&login)
+            .await
+            .expect("Sudo As auth");
+        resp["access_token"].as_str().unwrap().to_string()
+    };
+
+    let data = HierarchySearchRequest {
+        root_path: None,
+        search_criteria: HierarchySearchCriteria::SearchString("Something".to_string()),
+        seed_entity_field: None,
+    };
+
+    sg.hierarchy_search(&token, data).await.unwrap();
+}
+
+#[tokio::test]
+async fn e2e_test_hierarchy_search_by_entity() {
+    let sg = helpers::get_test_client();
+    let login = helpers::get_human_user_login();
+    let token = {
+        let resp: Value = sg
+            .authenticate_script_as_user(&login)
+            .await
+            .expect("Sudo As auth");
+        resp["access_token"].as_str().unwrap().to_string()
+    };
+
+    let data = HierarchySearchRequest {
+        root_path: None,
+        search_criteria: HierarchySearchCriteria::Entity(Entity {
+            // If the entity doesn't exist you'll get an empty result set, but
+            // that's fine for this test.
+            id: 123_456,
+            r#type: "Asset".to_string(),
+        }),
+        seed_entity_field: None,
+    };
+
+    sg.hierarchy_search(&token, data).await.unwrap();
 }

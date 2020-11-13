@@ -51,10 +51,11 @@ pub mod types;
 
 use crate::types::{
     AltImages, BatchedRequestsResponse, CreateFieldRequest, EntityActivityStreamResponse,
-    EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, Grouping, OptionsParameter,
-    PaginationParameter, ProjectAccessUpdateResponse, ReturnOnly, SchemaEntityResponse,
-    SchemaFieldResponse, SchemaFieldsResponse, SummarizeRequest, SummaryField, SummaryOptions,
-    UpdateFieldRequest, UploadInfoResponse,
+    EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, Grouping,
+    HierarchyExpandRequest, HierarchyExpandResponse, HierarchySearchRequest,
+    HierarchySearchResponse, OptionsParameter, PaginationParameter, ProjectAccessUpdateResponse,
+    ReturnOnly, SchemaEntityResponse, SchemaFieldResponse, SchemaFieldsResponse, SummarizeRequest,
+    SummaryField, SummaryOptions, UpdateFieldRequest, UploadInfoResponse,
 };
 use std::collections::HashMap;
 
@@ -917,6 +918,50 @@ impl Shotgun {
             req = req.header("Range", &val);
         }
 
+        handle_response(req.send().await?).await
+    }
+
+    /// Apparently this is an internal means for interrogating the navigation
+    /// system in Shotgun.
+    ///
+    /// Undocumented in the Python API, in fact the only mention is in the
+    /// changelog from years ago:
+    /// <https://developer.shotgunsoftware.com/python-api/changelog.html?highlight=hierarchy>
+    ///
+    /// <https://developer.shotgunsoftware.com/rest-api/#hierarchy-expand>
+    pub async fn hierarchy_expand(
+        &self,
+        token: &str,
+        data: HierarchyExpandRequest,
+    ) -> Result<HierarchyExpandResponse> {
+        let req = self
+            .client
+            .post(&format!("{}/api/v1/hierarchy/_expand", self.sg_server))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(&data);
+        handle_response(req.send().await?).await
+    }
+
+    /// Apparently this is an internal means for interrogating the navigation
+    /// system in Shotgun.
+    ///
+    /// Undocumented in the Python API, in fact the only mention is in the
+    /// changelog from years ago:
+    /// <https://developer.shotgunsoftware.com/python-api/changelog.html?highlight=hierarchy>
+    ///
+    /// <https://developer.shotgunsoftware.com/rest-api/#hierarchy-search>
+    pub async fn hierarchy_search(
+        &self,
+        token: &str,
+        data: HierarchySearchRequest,
+    ) -> Result<HierarchySearchResponse> {
+        let req = self
+            .client
+            .post(&format!("{}/api/v1/hierarchy/_search", self.sg_server))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(&data);
         handle_response(req.send().await?).await
     }
 

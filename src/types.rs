@@ -258,6 +258,10 @@ pub enum GroupingType {
 }
 
 /// HierarchyEntityFields is not represented as a named schema in the Shotgun OpenAPI Spec.
+// FIXME: the spec indicates `entity` and `fields` are optional, but if you send
+//  a `HierarchyEntityFields` to the server without either of them, you'll get a
+//  400 response.
+//  Likely the spec is wrong and they just mean the outer object is optional.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HierarchyEntityFields {
     pub entity: Option<String>,
@@ -332,7 +336,7 @@ pub struct HierarchyExpandResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_children: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub children: Option<Vec<HierarchyExpandResponse>>,
+    pub children: Option<Vec<HierarchyExpandResponseData>>,
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocShierarchyexpandresponse>
@@ -348,13 +352,13 @@ pub struct HierarchyReferenceEntity {
     pub r#type: Option<String>,
 }
 
-/// HierarchySearchCriteria is not represented as a named schema in the Shotgun OpenAPI Spec.
-/// This option MUST contain only ONE of the properties, as per the
-/// note in HierarchySearchRequest in Shotgun's docs.
+/// What to search the hierarchy by.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct HierarchySearchCriteria {
-    pub search_string: Option<String>,
-    pub entity: Option<Entity>,
+pub enum HierarchySearchCriteria {
+    #[serde(rename = "search_string")]
+    SearchString(String),
+    #[serde(rename = "entity")]
+    Entity(Entity),
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocShierarchysearchrequest>
