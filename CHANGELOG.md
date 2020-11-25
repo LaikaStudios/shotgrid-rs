@@ -1,5 +1,14 @@
 # (Unreleased)
 
+### Added
+
+- A new `types` module for structs/enums to represent the request/response
+  bodies for the Shotgun REST API (based on the OpenApi spec, but lightly
+  modified to match reality).
+- Added methods to `Shotgun` to represent all endpoints listed in the Shotgun
+  OpenApi spec.
+- A high-level `Shotgun::upload()` supporting both Shotgun and S3 storage
+  services.
 
 # [v0.8.1](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.8.0...v0.8.1) (2020-09-11)
 
