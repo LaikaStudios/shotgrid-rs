@@ -76,6 +76,15 @@ pub struct Entity {
     pub r#type: String,
 }
 
+impl Entity {
+    pub fn new<S: Into<String>>(r#type: S, id: i32) -> Entity {
+        Entity {
+            id,
+            r#type: r#type.into(),
+        }
+    }
+}
+
 /// EntityActivityStreamData is not represented as a named schema in the Shotgun OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EntityActivityStreamData {
@@ -770,6 +779,16 @@ pub struct UploadInfoLinks {
     pub upload: Option<String>,
     pub complete_upload: Option<String>,
     pub get_next_part: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct NextUploadPartLinks {
+    pub upload: Option<String>,
+    pub get_next_part: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct NextUploadPartResponse {
+    pub links: Option<NextUploadPartLinks>,
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSuploadinforesponse>

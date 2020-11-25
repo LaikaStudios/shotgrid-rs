@@ -28,6 +28,7 @@
 //! [rustls crate]: https://crates.io/crates/rustls
 //! [shotgun]: https://www.shotgunsoftware.com/
 
+use std::borrow::Cow;
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -37,18 +38,6 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 #[macro_use]
 extern crate failure;
-use log::{debug, error, trace};
-use reqwest::Response;
-/// This client represents the the http transport layer used by `Shotgun`.
-///
-/// Should you need to manually configure your client, you can do so then
-/// initialize your Shotgun instance via `Shotgun::with_client()`.
-pub use reqwest::{Certificate, Client};
-
-use std::borrow::Cow;
-
-pub mod types;
-
 use crate::types::{
     AltImages, BatchedRequestsResponse, CreateFieldRequest, EntityActivityStreamResponse,
     EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, Grouping,
@@ -57,8 +46,16 @@ use crate::types::{
     ReturnOnly, SchemaEntityResponse, SchemaFieldResponse, SchemaFieldsResponse, SummarizeRequest,
     SummaryField, SummaryOptions, UpdateFieldRequest, UploadInfoResponse,
 };
+use log::{debug, error, trace};
+use reqwest::Response;
+/// Re-export to provide access in case callers need to manually configure the
+/// Client via `Shotgun::with_client()`.
+// FIXME: re-export the whole reqwest crate.
+pub use reqwest::{Certificate, Client};
 use std::collections::HashMap;
-
+pub mod types;
+mod upload;
+pub use upload::{UploadReqBuilder, MAX_MULTIPART_CHUNK_SIZE, MIN_MULTIPART_CHUNK_SIZE};
 pub type Result<T> = std::result::Result<T, ShotgunError>;
 
 /// Get a default http client with ca certs added to it if specified via env var.
@@ -842,18 +839,20 @@ impl Shotgun {
         filename: &str,
         multipart_upload: Option<bool>,
     ) -> Result<UploadInfoResponse> {
-        let mut req = self
+        let mut params = vec![("filename", filename)];
+        if multipart_upload.unwrap_or(false) {
+            params.push(("multipart_upload", "true"));
+        }
+
+        let req = self
             .client
             .get(&format!(
-                "{}/api/v1/entity/{}/{}/_upload?filename={}",
-                self.sg_server, entity, entity_id, filename
+                "{}/api/v1/entity/{}/{}/_upload",
+                self.sg_server, entity, entity_id
             ))
+            .query(&params)
             .bearer_auth(token)
             .header("Accept", "application/json");
-
-        if let Some(val) = multipart_upload {
-            req = req.query(&[("multipart_upload", val)]);
-        }
 
         handle_response(req.send().await?).await
     }
@@ -873,18 +872,20 @@ impl Shotgun {
         where
             D: DeserializeOwned,
     {
-        let mut req = self
+        let mut params = vec![("filename", file_name)];
+        if multipart_upload.unwrap_or(false) {
+            params.push(("multipart_upload", "true"));
+        }
+
+        let req = self
             .client
             .get(&format!(
-                "{}/api/v1/entity/{}/{}/{}/_upload?filename={}",
-                self.sg_server, entity, entity_id, field_name, file_name
+                "{}/api/v1/entity/{}/{}/{}/_upload",
+                self.sg_server, entity, entity_id, field_name
             ))
+            .query(&params)
             .bearer_auth(token)
             .header("Accept", "application/json");
-
-        if let Some(val) = multipart_upload {
-            req = req.query(&[("multipart_upload", val)]);
-        }
 
         handle_response(req.send().await?).await
     }
@@ -1249,6 +1250,188 @@ impl Shotgun {
 
         handle_response(req.send().await?).await
     }
+
+    /// Upload attachments and thumbnails for a given entity.
+    ///
+    /// The `Shotgun::upload()` method will prepare and return a
+    /// `UploadReqBuilder` which can be used to configure some optional aspects
+    /// of the process such as linking the upload to tags, or
+    /// enabling/configuring multipart support.
+    ///
+    /// The content of the file to upload can be any type that implements the
+    /// [`Read`] trait. This includes [`File`] but also `&[u8]` (aka *a slice
+    /// of bytes*).
+    ///
+    /// > In the Python API, uploading thumbnails is treated as a distinct
+    /// > operation from attachments but in the REST API these are treated as the
+    /// > same thing.
+    /// >
+    /// > Thumbnail uploads in this case are handled by specifying `image` as the
+    /// > optional `field` parameter.
+    ///
+    /// # Examples
+    ///
+    /// Uploading an attachment to a note by setting `field` to None:
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> shotgun_rs::Result<()> {
+    /// use shotgun_rs::{Shotgun, TokenResponse};
+    /// use std::path::PathBuf;
+    /// use std::fs::File;
+    ///
+    /// let filename = "paranorman-poster.jpg";
+    /// let mut file_path = PathBuf::from("/path/to/posters");
+    /// file_path.push(filename);
+    /// let file = File::open(&file_path)?;
+    ///
+    /// let sg = Shotgun::new(
+    ///     String::from("https://shotgun.example.com"),
+    ///     Some("my-shotgun-api-user"),
+    ///     Some("**********")
+    /// )?;
+    ///
+    /// let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+    ///
+    /// sg.upload(
+    ///     &access_token,
+    ///     "Note",
+    ///     123456,
+    ///     // A `None` for the `field` param means this is a attachment upload.
+    ///     None,
+    ///     &filename,
+    ///     file
+    /// )
+    /// // Non-thumbnail uploads can include some short descriptive text to
+    /// // use as the display name (shown in attachment lists, etc).
+    /// .display_name(Some(String::from(
+    ///     "ParaNorman Poster Art",
+    /// )))
+    /// .send()
+    /// .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Uploading a thumbnail by specifying the field to upload to as `image`:
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> shotgun_rs::Result<()> {
+    /// # use shotgun_rs::{Shotgun, TokenResponse};
+    /// # use std::path::PathBuf;
+    /// # use std::fs::File;
+    /// # let filename = "paranorman-poster.jpg";
+    /// # let mut file_path = PathBuf::from("/path/to/posters");
+    /// # file_path.push(filename);
+    /// # let file = File::open(&file_path)?;
+    /// # let sg = Shotgun::new(
+    /// #     String::from("https://shotgun.example.com"),
+    /// #     Some("my-shotgun-api-user"),
+    /// #     Some("**********")
+    /// # )?;
+    /// # let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+    /// sg.upload(
+    ///     &access_token,
+    ///     "Asset",
+    ///     123456,
+    ///     // Setting `field` to "image" means this is a thumbnail upload.
+    ///     Some("image"),
+    ///     &filename,
+    ///     file,
+    /// ).send()
+    /// .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Uploading in-memory data instead of using a file on disk:
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> shotgun_rs::Result<()> {
+    /// # use shotgun_rs::{Shotgun, TokenResponse};
+    /// # let sg = Shotgun::new(
+    /// #     String::from("https://shotgun.example.com"),
+    /// #     Some("my-shotgun-api-user"),
+    /// #     Some("**********")
+    /// # )?;
+    /// # let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+    ///
+    /// let movie_script = "
+    /// 1. EXT. Mansion On The Hill
+    ///
+    ///             NARRATOR (V.O.)
+    ///     It was a dark and stormy night.
+    /// ";
+    ///
+    /// sg.upload(
+    ///     &access_token,
+    ///     "Asset",
+    ///     123456,
+    ///     None,
+    ///     "screenplay.txt",
+    ///     movie_script.as_bytes(),
+    /// )
+    /// .display_name(Some(String::from(
+    ///     "Spec script for a great new movie.",
+    /// )))
+    /// .send()
+    /// .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Caveats
+    ///
+    /// ## Multipart Uploads
+    ///
+    /// Multipart uploads are *only available* if your Shotgun instance is
+    /// configured to use *AWS S3 storage*. Setting the `multipart` parameter to
+    /// `true` when this not the case will result in a `400` error from Shotgun.
+    ///
+    /// For the times where *S3 storage is in use* you are **required** to set
+    /// `multipart` to `true` for files **500Mb or larger**. For files that are
+    /// smaller, you may use multipart *at your discretion*.
+    ///
+    /// There is currently a bug (**`SG-20292`**) where Shotgun will respond
+    /// with a `404` when you attempt to initiate a multipart upload without
+    /// also specifying a field name. While it *is legal* to use multipart for
+    /// record-level (as opposed to field-level) uploads, it doesn't work today.
+    ///
+    /// For now, the workaround is to always *specify an appropriate field name*
+    /// if you want to use multipart.
+    ///
+    /// ## Display Name and Tags
+    ///
+    /// The `display_name` and `tags` parameters are *ignored for thumbnail
+    /// uploads*, but are allowed for attachments.
+    ///
+    /// Also note that `tags` can cause your upload to fail if you supply an
+    /// invalid tag id, resulting in a `400` error from Shotgun.
+    ///
+    /// # See Also:
+    ///
+    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.upload>
+    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.upload_thumbnail>
+    /// - <https://developer.shotgunsoftware.com/rest-api/#shotgun-rest-api-Uploading-and-Downloading-Files>
+    ///
+    /// [`File`]: https://doc.rust-lang.org/std/fs/struct.File.html
+    /// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
+    pub fn upload<'a, R>(
+        &'a self,
+        token: &'a str,
+        entity: &'a str,
+        id: i32,
+        field: Option<&'a str>,
+        filename: &'a str,
+        file_content: R,
+    ) -> upload::UploadReqBuilder<'a, R>
+    where
+        R: Read,
+    {
+        UploadReqBuilder::new(self, token, entity, id, field, filename, file_content)
+    }
 }
 
 /// Checks to see if the `Value` is an object with a top level "errors" key.
@@ -1345,11 +1528,20 @@ pub enum ShotgunError {
     #[fail(display = "Authentication Failed - `{}`", _0)]
     Unauthorized(#[fail(cause)] reqwest::Error),
 
+    #[fail(display = "IO Error - `{}`", _0)]
+    IOError(#[fail(cause)] std::io::Error),
+
     #[fail(display = "Unexpected Error - `{}`", _0)]
     Unexpected(String),
 
     #[fail(display = "Server Error - `{:?}`", _0)]
     ServerError(Vec<ErrorObject>),
+
+    #[fail(display = "Multipart uploads not supported by storage service.")]
+    MultipartNotSupported,
+
+    #[fail(display = "File upload failed - `{}`", _0)]
+    UploadError(String),
 }
 
 impl From<serde_json::Error> for ShotgunError {
@@ -1361,6 +1553,12 @@ impl From<serde_json::Error> for ShotgunError {
 impl From<reqwest::Error> for ShotgunError {
     fn from(e: reqwest::Error) -> Self {
         ShotgunError::ClientError(e)
+    }
+}
+
+impl From<std::io::Error> for ShotgunError {
+    fn from(e: std::io::Error) -> Self {
+        ShotgunError::IOError(e)
     }
 }
 
@@ -1428,6 +1626,7 @@ mod tests {
         }
     }
 }
+
 #[cfg(test)]
 mod mock_tests {
     use super::*;
