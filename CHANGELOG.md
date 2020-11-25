@@ -10,6 +10,13 @@
 - A high-level `Shotgun::upload()` supporting both Shotgun and S3 storage
   services.
 
+# [v0.8.2](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.8.1...v0.8.2) (2020-11-25)
+
+### Added
+
+- Backport of `Shotgun::upload()` and related types/functions.
+
+
 # [v0.8.1](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.8.0...v0.8.1) (2020-09-11)
 
 ### Change
