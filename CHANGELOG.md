@@ -1,6 +1,12 @@
 # (Unreleased)
 
 
+# [v0.8.1](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.8.0...v0.8.1) (2020-09-11)
+
+### Change
+
+ - Add return fields option to update method.
+
 # [v0.8.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.7.0...v0.8.0) (2020-05-14)
 
 ### Breaking Changes
@@ -12,7 +18,6 @@
 
 - A `gzip` feature (off by default) has been added to allow dependents to
   enable gzip support for the underlying HTTP client.
-
 
 
 # [v0.7.0](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.6.1...v0.7.0) (2019-11-12)
