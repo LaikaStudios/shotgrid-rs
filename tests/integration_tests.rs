@@ -180,18 +180,37 @@ async fn e2e_test_text_search() {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
-    sg.text_search::<Value>(
+    sg.text_search(
         &token,
-        &json!({
-            "text": "foobar",
-            "entity_types": {
-                "Asset": []
-            },
-        }),
-        None,
+        Some("foobar"),
+        vec![("Asset", json!([]))].into_iter().collect(),
     )
+    .execute::<Value>()
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn e2e_test_text_search_empty_filters() {
+    let login = helpers::get_human_user_login();
+    let sg = helpers::get_test_client();
+
+    let token = {
+        let resp: Value = sg
+            // Text search only works for human users for some reason.
+            // Using a "sudo as" user to get around the limitation for now.
+            // <https://support.shotgunsoftware.com/hc/en-us/requests/114649>
+            // *(fixed in shotgun v8.16).*
+            .authenticate_script_as_user(&login)
+            .await
+            .expect("ApiUser auth as HumanUser");
+        resp["access_token"].as_str().unwrap().to_string()
+    };
+
+    sg.text_search(&token, Some("foobar"), vec![].into_iter().collect())
+        .execute::<Value>()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

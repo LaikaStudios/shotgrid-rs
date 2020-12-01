@@ -149,7 +149,6 @@
 //! [serde]: https://crates.io/crates/serde
 //! [serde_json]: https://crates.io/crates/serde_json
 
-use std::borrow::Cow;
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -163,8 +162,8 @@ use crate::types::{
     AltImages, BatchedRequestsResponse, CreateFieldRequest, EntityActivityStreamResponse,
     EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, Grouping,
     HierarchyExpandRequest, HierarchyExpandResponse, HierarchySearchRequest,
-    HierarchySearchResponse, OptionsParameter, PaginationParameter, ProjectAccessUpdateResponse,
-    ReturnOnly, SchemaEntityResponse, SchemaFieldResponse, SchemaFieldsResponse, SummarizeRequest,
+    HierarchySearchResponse, OptionsParameter, ProjectAccessUpdateResponse, ReturnOnly,
+    SchemaEntityResponse, SchemaFieldResponse, SchemaFieldsResponse, SummarizeRequest,
     SummaryField, SummaryOptions, UpdateFieldRequest, UploadInfoResponse,
 };
 use log::{debug, error, trace};
@@ -174,9 +173,14 @@ use reqwest::Response;
 // FIXME: re-export the whole reqwest crate.
 pub use reqwest::{Certificate, Client};
 use std::collections::HashMap;
+mod search;
+mod text_search;
 pub mod types;
 mod upload;
+use crate::text_search::TextSearchBuilder;
+pub use search::SearchBuilder;
 pub use upload::{UploadReqBuilder, MAX_MULTIPART_CHUNK_SIZE, MIN_MULTIPART_CHUNK_SIZE};
+
 pub type Result<T> = std::result::Result<T, ShotgunError>;
 
 /// Get a default http client with ca certs added to it if specified via env var.
@@ -211,33 +215,6 @@ fn get_filter_mime(maybe_filters: &Value) -> Result<&'static str> {
     }
 }
 
-// Gets the mime type based on the entity_types.
-// If they don't all match the same type (array vs object), an error is returned
-fn get_entity_types_mime(maybe_filters: &Value) -> Result<&'static str> {
-    let mut content_type: Option<&str> = None;
-    let filters = maybe_filters["entity_types"].as_object();
-    // FIXME: check to make sure there's at least one key in this object.
-    if filters.is_none() {
-        return Err(ShotgunError::InvalidFilters);
-    }
-
-    for (_, value) in filters.unwrap() {
-        content_type = match get_filter_mime(&value) {
-            Err(e) => return Err(e),
-            Ok(mime) => {
-                // If all entity_type filters don't match the same content_type, raise an error
-                if content_type.is_some() && Some(mime) != content_type {
-                    return Err(ShotgunError::InvalidFilters);
-                }
-                Some(mime)
-            }
-        };
-    }
-    // Should not panic because we return Err in all other cases
-    // FIXME: this does panic if the "entity_types" key is an empty object
-    Ok(content_type.unwrap())
-}
-
 #[derive(Clone, Debug)]
 pub struct Shotgun {
     /// Base url for the shotgun server.
@@ -248,156 +225,6 @@ pub struct Shotgun {
     script_name: Option<String>,
     /// API User (aka "script") secret key, used to generate API Tokens.
     script_key: Option<String>,
-}
-
-pub struct SearchBuilder<'a> {
-    sg: &'a Shotgun,
-    token: &'a str,
-    entity: &'a str,
-    fields: &'a str,
-    filters: &'a Value,
-    sort: Option<String>,
-    pagination: Option<PaginationParameter>,
-    options: Option<OptionsParameter>,
-}
-
-impl<'a> SearchBuilder<'a> {
-    pub fn new(
-        sg: &'a Shotgun,
-        token: &'a str,
-        entity: &'a str,
-        fields: &'a str,
-        filters: &'a Value,
-    ) -> Result<SearchBuilder<'a>> {
-        Ok(SearchBuilder {
-            sg,
-            token,
-            entity,
-            fields,
-            filters,
-            sort: None,
-            pagination: None,
-            options: None,
-        })
-    }
-
-    pub fn sort(mut self, value: Option<&'a str>) -> Self {
-        self.sort = value.map(|f| f.to_string());
-        self
-    }
-
-    pub fn size(mut self, value: Option<usize>) -> Self {
-        let mut pagination = self.pagination.take().unwrap_or_default();
-        if pagination.number.is_none() && value.is_none() {
-            self.pagination = None;
-        } else {
-            pagination.size = value;
-            self.pagination.replace(pagination);
-        }
-        self
-    }
-
-    pub fn number(mut self, value: Option<usize>) -> Self {
-        let mut pagination = self.pagination.take().unwrap_or_default();
-        if pagination.size.is_none() && value.is_none() {
-            self.pagination = None;
-        } else {
-            pagination.number = value;
-            self.pagination.replace(pagination);
-        }
-        self
-    }
-
-    pub fn return_only(mut self, value: Option<ReturnOnly>) -> Self {
-        let mut options = self.options.take().unwrap_or_default();
-        if options.include_archived_projects.is_none() && value.is_none() {
-            self.options = None;
-        } else {
-            options.return_only = value;
-            self.options.replace(options);
-        }
-        self
-    }
-
-    pub fn include_archived_projects(mut self, value: Option<bool>) -> Self {
-        let mut options = self.options.take().unwrap_or_default();
-        if options.return_only.is_none() && value.is_none() {
-            self.options = None;
-        } else {
-            options.include_archived_projects = value;
-            self.options.replace(options);
-        }
-        self
-    }
-
-    pub async fn execute<D: 'static>(self) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let content_type = match get_filter_mime(&self.filters) {
-            // early return if the filters are bogus and fail the sniff test
-            Err(e) => return Err(e),
-            Ok(mime) => mime,
-        };
-
-        let mut qs: Vec<(&str, Cow<str>)> = vec![("fields", Cow::Borrowed(self.fields))];
-        if let Some(pag) = self.pagination {
-            if let Some(number) = pag.number {
-                qs.push(("page[number]", Cow::Owned(format!("{}", number))));
-            }
-
-            // The page size is optional so we don't have to hard code
-            // shotgun's *current* default of 500 into the library.
-            //
-            // If/when shotgun changes their default, folks who haven't
-            // specified a page size should get whatever shotgun says, not *our*
-            // hard-coded default.
-            if let Some(size) = pag.size {
-                qs.push(("page[size]", Cow::Owned(format!("{}", size))));
-            }
-        }
-
-        if let Some(sort) = self.sort {
-            qs.push(("sort", Cow::Owned(sort)));
-        }
-
-        if let Some(opts) = self.options {
-            if let Some(return_only) = opts.return_only {
-                qs.push((
-                    "options[return_only]",
-                    Cow::Borrowed(match return_only {
-                        ReturnOnly::Active => "active",
-                        ReturnOnly::Retired => "retired",
-                    }),
-                ));
-            }
-            if let Some(include_archived_projects) = opts.include_archived_projects {
-                qs.push((
-                    "options[include_archived_projects]",
-                    Cow::Owned(format!("{}", include_archived_projects)),
-                ));
-            }
-        }
-
-        let req = self
-            .sg
-            .client
-            .post(&format!(
-                "{}/api/v1/entity/{}/_search",
-                self.sg.sg_server, self.entity
-            ))
-            .query(&qs)
-            .header("Accept", "application/json")
-            .bearer_auth(self.token)
-            .header("Content-Type", content_type)
-            // XXX: the content type is being set to shotgun's custom mime types
-            //   to indicate the shape of the filter payload. Do not be tempted to use
-            //   `.json()` here instead of `.body()` or you'll end up reverting the
-            //   header set above.
-            .body(json!({"filters": self.filters}).to_string());
-
-        handle_response(req.send().await?).await
-    }
 }
 
 impl Shotgun {
@@ -1253,9 +1080,43 @@ impl Shotgun {
         Ok(SearchBuilder::new(self, token, entity, fields, filters)?)
     }
 
-    /// Search for entities of the given type(s) and returns a list of basic entity data
+    /// Search for entities of the given type(s) and returns a list of *basic* entity data
     /// that fits the search. Rich filters can be used to narrow down searches to entities
     /// that match the filters.
+    ///
+    /// The `Shotgun::text_search()` method will prepare and return a
+    /// `TextSearchBuilder` which can be used to configure some optional aspects
+    /// of the process such as setting pagination parameters or sort order.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use serde_json::{json, Value};
+    /// use shotgun_rs::{Shotgun, TokenResponse};
+    /// use shotgun_rs::types::{ResourceArrayResponse, SelfLink};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> shotgun_rs::Result<()> {
+    /// let server = String::from("https://shotgun.example.com");
+    /// let sg = Shotgun::new(server, Some("my-api-user"), Some("********"))?;
+    /// let TokenResponse { access_token, .. } = sg.authenticate_script_as_user("nbabcock").await?;
+    ///
+    /// let entity_filters = vec![
+    ///     ("Asset", json!([["sg_status_list", "is_not", "omt"]]))
+    /// ]
+    /// .into_iter()
+    /// .collect();
+    ///
+    /// let resp: ResourceArrayResponse<Value, SelfLink> = sg
+    ///     .text_search(&access_token, Some("Mr. Penderghast"), entity_filters)
+    ///     .size(Some(5))
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Caveats
     ///
     /// > **Important**: performing text searches requires a `HumanUser` and *not
     /// > an `ApiUser`*.
@@ -1264,43 +1125,18 @@ impl Shotgun {
     /// > method.
     /// >
     /// > Failing to supply a valid `HumanUser` for this operation will get you
-    /// > a 500 response from shotgun, with a 100 "unknown" error code.
+    /// > a `500` response from shotgun, with a 100 "unknown" error code.
     ///
     /// For details on the filter syntax, please refer to the docs:
     ///
     /// <https://developer.shotgunsoftware.com/rest-api/#search-text-entries>
-    ///
-    pub async fn text_search<D: 'static>(
-        &self,
-        token: &str,
-        filters: &Value,
-        pagination: Option<PaginationParameter>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut filters = filters.clone();
-        {
-            if let Some(pagination) = pagination {
-                let map = filters.as_object_mut().unwrap();
-                map.insert("page".to_string(), json!(pagination));
-            }
-        }
-
-        let content_type = match get_entity_types_mime(&filters) {
-            // early return if the filters are bogus and fail the sniff test
-            Err(e) => return Err(e),
-            Ok(mime) => mime,
-        };
-
-        let req = self
-            .client
-            .post(&format!("{}/api/v1/entity/_text_search", self.sg_server))
-            .header("Content-Type", content_type)
-            .header("Accept", "application/json")
-            .bearer_auth(token)
-            .body(filters.to_string());
-        handle_response(req.send().await?).await
+    pub fn text_search<'a>(
+        &'a self,
+        token: &'a str,
+        text: Option<&'a str>,
+        entity_filters: HashMap<&'a str, Value>,
+    ) -> TextSearchBuilder<'a> {
+        TextSearchBuilder::new(self, token, text, entity_filters)
     }
 
     /// Make a summarize request.
@@ -1548,8 +1384,8 @@ impl Shotgun {
         filename: &'a str,
         file_content: R,
     ) -> upload::UploadReqBuilder<'a, R>
-    where
-        R: Read,
+        where
+            R: Read,
     {
         UploadReqBuilder::new(self, token, entity, id, field, filename, file_content)
     }
@@ -1690,62 +1526,6 @@ pub struct TokenResponse {
     pub access_token: String,
     pub expires_in: i64,
     pub refresh_token: String,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_entity_types_mime_array_entity_types() {
-        let filters = json!({"entity_types":
-            {
-                "Project": [["is_demo", "is", true]],
-                "Asset": [["sg_status", "is", "Hold"]]
-            }
-        });
-        let expected_mime = "application/vnd+shotgun.api3_array+json";
-        assert_eq!(get_entity_types_mime(&filters).unwrap(), expected_mime);
-    }
-
-    #[test]
-    fn test_get_entity_types_mime_object_entity_types() {
-        let filters = json!({"entity_types":
-            {
-                "Project": {"logical_operator": "and", "conditions": [["is_demo", "is", true], ["code", "is", "Foobar"]]},
-                "Asset": {"logical_operator": "or", "conditions": [["sg_status", "is", "Hold"], ["code", "is", "FizzBuzz"]]}
-            }
-        });
-        let expected_mime = "application/vnd+shotgun.api3_hash+json";
-        assert_eq!(get_entity_types_mime(&filters).unwrap(), expected_mime);
-    }
-
-    #[test]
-    fn test_get_entity_types_mime_mixed_entity_types_should_fail() {
-        let filters = json!({"entity_types":
-            {
-                "Project": {"logical_operator": "and", "conditions": [["is_demo", "is", true], ["code", "is", "Foobar"]]},
-                "Asset": [["sg_status", "is", "Hold"]]
-            }
-        });
-
-        let result = get_entity_types_mime(&filters);
-        match result {
-            Err(ShotgunError::InvalidFilters) => assert!(true),
-            _ => assert!(false, "Expected ShotgunError::InvalidFilters"),
-        }
-    }
-
-    #[test]
-    fn test_get_invalid_entity_type_should_fail() {
-        let filters = json!({"entity_types": ["foobar"]});
-
-        let result = get_entity_types_mime(&filters);
-        match result {
-            Err(ShotgunError::InvalidFilters) => assert!(true),
-            _ => assert!(false, "Expected ShotgunError::InvalidFilters"),
-        }
-    }
 }
 
 #[cfg(test)]

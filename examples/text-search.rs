@@ -23,8 +23,8 @@
 //! ```
 
 use serde_json::{json, Value};
-use shotgun_rs::types::PaginationParameter;
 use shotgun_rs::Shotgun;
+
 use std::env;
 
 #[tokio::main]
@@ -40,10 +40,6 @@ async fn main() -> shotgun_rs::Result<()> {
     let limit: Option<usize> = env::args()
         .nth(3)
         .map(|s| s.parse().expect("limit must be a number"));
-    let page_req = PaginationParameter {
-        number: Some(1),
-        size: limit,
-    };
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
@@ -52,17 +48,14 @@ async fn main() -> shotgun_rs::Result<()> {
         resp["access_token"].as_str().unwrap().to_string()
     };
 
+    let entity_filters = vec![("Asset", json!([["sg_status_list", "is_not", "omt"]]))]
+        .into_iter()
+        .collect();
+
     let resp: Value = sg
-        .text_search(
-            &token,
-            &json!({
-                "text": &text,
-                "entity_types": {
-                    "Asset": [["sg_status_list", "is_not", "omt"]]
-                },
-            }),
-            Some(page_req),
-        )
+        .text_search(&token, Some(&text), entity_filters)
+        .size(limit)
+        .execute()
         .await?;
 
     println!("{}", serde_json::to_string_pretty(&resp).unwrap());
