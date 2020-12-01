@@ -1,5 +1,12 @@
 # (Unreleased)
 
+### Breaking Changes
+
+- `Shotgun::text_search()` now returns a `TextSearchBuilder` instead of creating
+  the request immediately. Parameters with defaults are now set via the builder
+  instead of being accepted in the parameter list of `Shotgun::text_search()`
+  itself.
+
 ### Added
 
 - A new `types` module for structs/enums to represent the request/response
@@ -9,6 +16,11 @@
   OpenApi spec.
 - A high-level `Shotgun::upload()` supporting both Shotgun and S3 storage
   services.
+
+### Fixed
+
+- `Shotgun::text_search()` no longer panics if given an empty map of entity
+  filters.
 
 # [v0.8.2](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.8.1...v0.8.2) (2020-11-25)
 
