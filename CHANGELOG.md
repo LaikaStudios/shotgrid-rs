@@ -2,10 +2,18 @@
 
 ### Breaking Changes
 
-- `Shotgun::text_search()` now returns a `TextSearchBuilder` instead of creating
-  the request immediately. Parameters with defaults are now set via the builder
-  instead of being accepted in the parameter list of `Shotgun::text_search()`
-  itself.
+#### Builders
+
+A number of methods have been updated to use the
+[builder pattern](https://doc.rust-lang.org/1.0.0/style/ownership/builders.html)
+to streamline usage by allowing the caller to skip setting parameters that have
+well-understood defaults available.
+
+- `Shotgun::text_search()` now returns a `TextSearchBuilder`.
+- `Shotgun::summarize()` now returns a `SummarizeReqBuilder`.
+  - The return value from `SummarizeReqBuilder` is not generic like the old
+    `Shotgun::summarize()` method was, instead returning a `SummarizeResponse`.
+
 
 ### Added
 
@@ -16,6 +24,8 @@
   OpenApi spec.
 - A high-level `Shotgun::upload()` supporting both Shotgun and S3 storage
   services.
+- `From` impls added for `SummaryField` and `Grouping` so they can be
+  conveniently built from tuples.
 
 ### Fixed
 

@@ -160,11 +160,10 @@ use serde_json::{json, Value};
 extern crate failure;
 use crate::types::{
     AltImages, BatchedRequestsResponse, CreateFieldRequest, EntityActivityStreamResponse,
-    EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, Grouping,
-    HierarchyExpandRequest, HierarchyExpandResponse, HierarchySearchRequest,
-    HierarchySearchResponse, OptionsParameter, ProjectAccessUpdateResponse, ReturnOnly,
-    SchemaEntityResponse, SchemaFieldResponse, SchemaFieldsResponse, SummarizeRequest,
-    SummaryField, SummaryOptions, UpdateFieldRequest, UploadInfoResponse,
+    EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, HierarchyExpandRequest,
+    HierarchyExpandResponse, HierarchySearchRequest, HierarchySearchResponse, OptionsParameter,
+    ProjectAccessUpdateResponse, ReturnOnly, SchemaEntityResponse, SchemaFieldResponse,
+    SchemaFieldsResponse, SummaryField, UpdateFieldRequest, UploadInfoResponse,
 };
 use log::{debug, error, trace};
 use reqwest::Response;
@@ -174,9 +173,11 @@ use reqwest::Response;
 pub use reqwest::{Certificate, Client};
 use std::collections::HashMap;
 mod search;
+mod summarize;
 mod text_search;
 pub mod types;
 mod upload;
+pub use crate::summarize::SummarizeReqBuilder;
 use crate::text_search::TextSearchBuilder;
 pub use search::SearchBuilder;
 pub use upload::{UploadReqBuilder, MAX_MULTIPART_CHUNK_SIZE, MIN_MULTIPART_CHUNK_SIZE};
@@ -1145,46 +1146,43 @@ impl Shotgun {
     /// where you can specify `GROUP BY` and `HAVING` clauses in order to rollup
     /// query results into buckets.
     ///
+    /// ```no_run
+    /// use serde_json::{json, Value};
+    /// use shotgun_rs::{Shotgun, TokenResponse};
+    /// use shotgun_rs::types::{ResourceArrayResponse, SelfLink};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> shotgun_rs::Result<()> {
+    /// use shotgun_rs::types::SummaryFieldType;
+    /// let server = String::from("https://shotgun.example.com");
+    /// let sg = Shotgun::new(server, Some("my-api-user"), Some("********"))?;
+    /// let TokenResponse { access_token, .. } = sg.authenticate_script_as_user("nbabcock").await?;
+    ///
+    /// let filters = json!([["project", "is", {"type": "Project", "id": 4 }]]);
+    /// let summary_fields = vec![("id", SummaryFieldType::Count).into()];
+    ///
+    /// let summary = sg
+    ///     .summarize(&access_token, "Asset", Some(filters), summary_fields)
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// For more on summary queries, see:
     ///
     /// - <https://developer.shotgunsoftware.com/rest-api/#summarize-field-data>
     /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.summarize>
-    pub async fn summarize<D: 'static>(
-        &self,
-        token: &str,
-        entity: &str,
+    pub fn summarize<'a>(
+        &'a self,
+        token: &'a str,
+        entity: &'a str,
+        // FIXME: python api treats filters as required (and we fallback to empty array).
+        //  Maybe just make it required?
         filters: Option<Value>,
-        summary_fields: Option<Vec<SummaryField>>,
-        grouping: Option<Vec<Grouping>>,
-        options: Option<SummaryOptions>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let content_type = get_filter_mime(filters.as_ref().unwrap_or(&json!([])))?;
-
-        let body = SummarizeRequest {
-            filters,
-            summary_fields,
-            grouping,
-            options,
-        };
-
-        let req = self
-            .client
-            .post(&format!(
-                "{}/api/v1/entity/{}/_summarize",
-                self.sg_server, entity
-            ))
-            .header("Accept", "application/json")
-            .bearer_auth(token)
-            .header("Content-Type", content_type)
-            // XXX: the content type is being set to shotgun's custom mime types
-            //   to indicate the shape of the filter payload. Do not be tempted to use
-            //   `.json()` here instead of `.body()` or you'll end up reverting the
-            //   header set above.
-            .body(json!(body).to_string());
-        handle_response(req.send().await?).await
+        summary_fields: Vec<SummaryField>,
+    ) -> SummarizeReqBuilder {
+        summarize::SummarizeReqBuilder::new(self, token, entity, filters, summary_fields)
     }
 
     /// Update the last access time of a project by a user.

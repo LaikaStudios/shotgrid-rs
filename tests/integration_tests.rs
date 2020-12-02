@@ -18,10 +18,10 @@
 
 use serde_json::{json, Value};
 use shotgun_rs::types::{
-    Entity, Grouping, GroupingDirection, GroupingType, HierarchyEntityFields,
-    HierarchyExpandRequest, HierarchySearchCriteria, HierarchySearchRequest, SummaryField,
-    SummaryFieldType,
+    Entity, GroupingDirection, GroupingType, HierarchyEntityFields, HierarchyExpandRequest,
+    HierarchySearchCriteria, HierarchySearchRequest, SummaryFieldType,
 };
+use shotgun_rs::TokenResponse;
 
 mod helpers;
 
@@ -123,26 +123,85 @@ async fn e2e_test_summarize_project_assets() {
     let sg = helpers::get_test_client();
     let project_id = helpers::get_project_id();
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let TokenResponse { access_token, .. } = sg.authenticate_script().await.expect("ApiUser auth");
 
-    sg.summarize::<Value>(
-        &token,
+    sg.summarize(
+        &access_token,
         "Asset",
         Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
-        Some(vec![SummaryField {
-            field: "id".to_string(),
-            r#type: SummaryFieldType::Count,
-        }]),
-        Some(vec![Grouping {
-            field: "sg_asset_type".to_string(),
-            r#type: GroupingType::Exact,
-            direction: Some(GroupingDirection::Asc),
-        }]),
-        None,
+        vec![("id", SummaryFieldType::Count).into()],
     )
+    .grouping(Some(vec![(
+        "sg_asset_type",
+        GroupingType::Exact,
+        GroupingDirection::Asc,
+    )
+        .into()]))
+    .execute()
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn e2e_test_summarize_no_filters() {
+    let sg = helpers::get_test_client();
+
+    let TokenResponse { access_token, .. } = sg.authenticate_script().await.expect("ApiUser auth");
+
+    sg.summarize(
+        &access_token,
+        "Asset",
+        None,
+        vec![("id", SummaryFieldType::Count).into()],
+    )
+    .grouping(Some(vec![(
+        "sg_asset_type",
+        GroupingType::Exact,
+        GroupingDirection::Asc,
+    )
+        .into()]))
+    .execute()
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn e2e_test_summarize_empty_summary_fields() {
+    let sg = helpers::get_test_client();
+    let project_id = helpers::get_project_id();
+
+    let TokenResponse { access_token, .. } = sg.authenticate_script().await.expect("ApiUser auth");
+
+    sg.summarize(
+        &access_token,
+        "Asset",
+        Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+        vec![],
+    )
+    .grouping(Some(vec![(
+        "sg_asset_type",
+        GroupingType::Exact,
+        GroupingDirection::Asc,
+    )
+        .into()]))
+    .execute()
+    .await
+    .unwrap();
+}
+#[tokio::test]
+async fn e2e_test_summarize_no_groupings() {
+    let sg = helpers::get_test_client();
+    let project_id = helpers::get_project_id();
+
+    let TokenResponse { access_token, .. } = sg.authenticate_script().await.expect("ApiUser auth");
+
+    sg.summarize(
+        &access_token,
+        "Asset",
+        Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+        vec![("id", SummaryFieldType::Count).into()],
+    )
+    .execute()
     .await
     .unwrap();
 }

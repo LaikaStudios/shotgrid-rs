@@ -20,9 +20,9 @@
 //! $ cargo run --example summarize-child-tasks <task ids...>
 //! ```
 
-use serde_json::{json, Value};
-use shotgun_rs::types::{Grouping, GroupingType, SummaryField, SummaryFieldType};
-use shotgun_rs::Shotgun;
+use serde_json::json;
+use shotgun_rs::types::{GroupingType, SummaryFieldType};
+use shotgun_rs::{Shotgun, TokenResponse};
 use std::env;
 
 #[tokio::main]
@@ -43,43 +43,44 @@ async fn main() -> shotgun_rs::Result<()> {
     }
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
 
-    let resp: Value = sg
+    let resp = sg
         .summarize(
-            &token,
+            &access_token,
             "Task",
             Some(json!([["sg_parent_task.Task.id", "in", &parent_tasks]])),
-            Some(vec![SummaryField {
-                field: "id".to_string(),
-                r#type: SummaryFieldType::Count,
-            }]),
-            Some(vec![
-                Grouping {
-                    field: "sg_parent_task.Task.id".to_string(),
-                    r#type: GroupingType::Exact,
-                    direction: None,
-                },
-                Grouping {
-                    field: "sg_status_list".to_string(),
-                    r#type: GroupingType::Exact,
-                    direction: None,
-                },
-            ]),
-            None,
+            vec![("id", SummaryFieldType::Count).into()],
         )
+        .grouping(Some(
+            vec![
+                ("sg_parent_task.Task.id", GroupingType::Exact),
+                ("sg_status_list", GroupingType::Exact),
+            ]
+            .into_iter()
+            // This leverages `Grouping::from` to convert the two-tuples into `Grouping`s.
+            .map(Into::into)
+            .collect(),
+        ))
+        .execute()
         .await?;
 
-    for group in resp["data"]["groups"].as_array().unwrap() {
-        println!("Parent Task: {}", group["group_value"]);
-        for status_count in group["groups"].as_array().unwrap() {
+    for group in resp.data.groups.unwrap() {
+        println!("Parent Task: {}", group.group_value.unwrap_or_default());
+
+        for status_count in group.groups.unwrap() {
             println!(
                 "{:>10}: {:>6}",
-                status_count["group_value"].as_str().unwrap(),
-                status_count["summaries"]["id"].as_i64().unwrap_or(0)
+                status_count.group_value.unwrap(),
+                status_count
+                    // This is an arbitrary JSON object, represented as a
+                    // `HashMap<String, serde_json::Value>`.
+                    .summaries
+                    .unwrap()
+                    .get("id")
+                    // attempt to cast the `serde_json::Value` to an integer
+                    .and_then(|s| s.as_i64())
+                    .unwrap_or(0)
             );
         }
     }

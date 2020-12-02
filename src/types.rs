@@ -1,6 +1,11 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+pub use crate::summarize::{
+    Grouping, GroupingDirection, GroupingType, SummarizeRequest, SummarizeResponse, SummaryData,
+    SummaryField, SummaryFieldType, SummaryMap, SummaryOptions,
+};
+
 pub type Filters = Value; // FIXME: SGRS-32 need a more sophisticated representation for filters.
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSactivityupdate>
@@ -205,66 +210,6 @@ pub struct FollowRecord {
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSgetworkdayrulesresponse>
 pub type GetWorkDayRulesResponse = ResourceArrayResponse<WorkDayRulesData, SelfLink>;
-
-/// A grouping for a summary request.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct Grouping {
-    /// The field to group by.
-    pub field: String,
-    /// The aggregate operation to use to derive the grouping.
-    pub r#type: GroupingType,
-    /// The direction to order the grouping (ASC or DESC).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub direction: Option<GroupingDirection>,
-}
-
-/// Direction to order a summary grouping.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum GroupingDirection {
-    #[serde(rename = "asc")]
-    Asc,
-    #[serde(rename = "desc")]
-    Desc,
-}
-
-/// How to perform the grouping for a given summary request.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum GroupingType {
-    #[serde(rename = "exact")]
-    Exact,
-    #[serde(rename = "tens")]
-    Tens,
-    #[serde(rename = "hundreds")]
-    Hundreds,
-    #[serde(rename = "thousands")]
-    Thousands,
-    #[serde(rename = "tensofthousands")]
-    TensOfThousands,
-    #[serde(rename = "hundredsofthousands")]
-    HundredsOfThousands,
-    #[serde(rename = "millions")]
-    Millions,
-    #[serde(rename = "day")]
-    Day,
-    #[serde(rename = "week")]
-    Week,
-    #[serde(rename = "month")]
-    Month,
-    #[serde(rename = "quarter")]
-    Quarter,
-    #[serde(rename = "year")]
-    Year,
-    #[serde(rename = "clustered_date")]
-    ClusteredDate,
-    #[serde(rename = "oneday")]
-    OneDay,
-    #[serde(rename = "fivedays")]
-    FiveDays,
-    #[serde(rename = "entitytype")]
-    EntityType,
-    #[serde(rename = "firstletter")]
-    FirstLetter,
-}
 
 /// HierarchyEntityFields is not represented as a named schema in the Shotgun OpenAPI Spec.
 // FIXME: the spec indicates `entity` and `fields` are optional, but if you send
@@ -605,108 +550,6 @@ pub struct SingleResourceResponse<R, L> {
     pub data: Option<R>,
     /// Related resource links
     pub links: Option<L>,
-}
-
-/// Request body of a summarize query.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SummarizeRequest {
-    /// Filters used to perform the initial search for things you will be
-    /// aggregating.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filters: Option<Filters>, // FIXME: SGRS-32 filters need better types
-
-    /// Summary fields represent the calculated values produced per
-    /// grouping.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary_fields: Option<Vec<SummaryField>>,
-
-    /// Groupings for aggregate operations. These are what you are
-    /// _aggregating by_.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub grouping: Option<Vec<Grouping>>,
-
-    /// Options for the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub options: Option<SummaryOptions>,
-}
-
-// FIXME: `Value` here should be a concrete type that is string, number, bool,
-//  or object (anything but array).
-//  Either that, or we can do `Value` and just advise that the thing is not
-//  going to be an array...
-//  The main thing we get from calling this a hashmap is we enforce the top
-//  level being a map.
-//  We could do some kind of recursive enum deal. Yuck.
-type SummaryMap = HashMap<String, Value>;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SummaryGroups {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_value: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summaries: Option<SummaryMap>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SummaryData {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summaries: Option<SummaryMap>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub groups: Option<Vec<SummaryGroups>>,
-}
-
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSsummarizeresponse>
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SummarizeResponse {
-    pub data: SummaryData,
-}
-
-/// A summary field consists of a concrete field on an entity and a summary
-/// operation to use to aggregate it as part of a summary request.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct SummaryField {
-    pub field: String,
-    pub r#type: SummaryFieldType,
-}
-
-/// The type of calculation to summarize.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum SummaryFieldType {
-    #[serde(rename = "record_count")]
-    RecordCount,
-    #[serde(rename = "count")]
-    Count,
-    #[serde(rename = "sum")]
-    Sum,
-    #[serde(rename = "maximum")]
-    Max,
-    #[serde(rename = "minimum")]
-    Min,
-    #[serde(rename = "average")]
-    Avg,
-    #[serde(rename = "earliest")]
-    Earliest,
-    #[serde(rename = "latest")]
-    Latest,
-    #[serde(rename = "percentage")]
-    Percentage,
-    #[serde(rename = "status_percentage")]
-    StatusPercentage,
-    #[serde(rename = "status_list")]
-    StatusList,
-    #[serde(rename = "checked")]
-    Checked,
-    #[serde(rename = "unchecked")]
-    Unchecked,
-}
-
-/// Options for a summary request.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct SummaryOptions {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_archived_projects: Option<bool>,
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocStextsearchrequest>

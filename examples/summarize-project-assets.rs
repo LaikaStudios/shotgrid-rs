@@ -20,11 +20,9 @@
 //! $ cargo run --example summarize-project-assets <project id>
 //! ```
 
-use serde_json::{json, Value};
-use shotgun_rs::types::{
-    Grouping, GroupingDirection, GroupingType, SummaryField, SummaryFieldType,
-};
-use shotgun_rs::Shotgun;
+use serde_json::json;
+use shotgun_rs::types::{GroupingDirection, GroupingType, SummaryFieldType};
+use shotgun_rs::{Shotgun, TokenResponse};
 use std::env;
 
 #[tokio::main]
@@ -43,29 +41,26 @@ async fn main() -> shotgun_rs::Result<()> {
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
 
-    let resp: Value = sg
+    let summary = sg
         .summarize(
-            &token,
+            &access_token,
             "Asset",
             Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
-            Some(vec![SummaryField {
-                field: "id".to_string(),
-                r#type: SummaryFieldType::Count,
-            }]),
-            Some(vec![Grouping {
-                field: "sg_asset_type".to_string(),
-                r#type: GroupingType::Exact,
-                direction: Some(GroupingDirection::Asc),
-            }]),
-            None,
+            vec![("id", SummaryFieldType::Count).into()],
         )
+        .grouping(Some(
+            vec![("sg_asset_type", GroupingType::Exact, GroupingDirection::Asc)]
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        ))
+        .execute()
         .await?;
 
-    println!("{}", resp);
+    // The `SummaryResponse` we get from a summarize() call can be serialized as
+    // a json object via serde_json.
+    println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
 }
