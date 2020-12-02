@@ -13,6 +13,8 @@ well-understood defaults available.
 - `Shotgun::summarize()` now returns a `SummarizeReqBuilder`.
   - The return value from `SummarizeReqBuilder` is not generic like the old
     `Shotgun::summarize()` method was, instead returning a `SummarizeResponse`.
+- `Shotgun::entity_relationship_read()` now returns a (you guessed it)
+  `EntityRelationshipReadReqBuilder`.
 
 
 ### Added

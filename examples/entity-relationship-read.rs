@@ -24,7 +24,6 @@
 //!
 
 use serde_json::Value;
-use shotgun_rs::types::{OptionsParameter, ReturnOnly};
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -57,13 +56,8 @@ async fn main() -> shotgun_rs::Result<()> {
             &entity.unwrap(),
             entity_id.unwrap(),
             &related_field.unwrap(),
-            Some({
-                OptionsParameter {
-                    return_only: Some(ReturnOnly::Active),
-                    include_archived_projects: Some(false),
-                }
-            }),
         )
+        .execute()
         .await?;
 
     for entry in resp["data"].as_array().expect("response decode data") {

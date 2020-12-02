@@ -368,19 +368,10 @@ pub struct ResourceMapResponse<R, L> {
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSoptionsparameter>
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct OptionsParameter {
     pub return_only: Option<ReturnOnly>,
     pub include_archived_projects: Option<bool>,
-}
-
-impl Default for OptionsParameter {
-    fn default() -> Self {
-        Self {
-            return_only: None,
-            include_archived_projects: None,
-        }
-    }
 }
 
 /// This controls the paging of search-style list API calls.

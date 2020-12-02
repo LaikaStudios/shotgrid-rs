@@ -161,9 +161,9 @@ extern crate failure;
 use crate::types::{
     AltImages, BatchedRequestsResponse, CreateFieldRequest, EntityActivityStreamResponse,
     EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, HierarchyExpandRequest,
-    HierarchyExpandResponse, HierarchySearchRequest, HierarchySearchResponse, OptionsParameter,
-    ProjectAccessUpdateResponse, ReturnOnly, SchemaEntityResponse, SchemaFieldResponse,
-    SchemaFieldsResponse, SummaryField, UpdateFieldRequest, UploadInfoResponse,
+    HierarchyExpandResponse, HierarchySearchRequest, HierarchySearchResponse,
+    ProjectAccessUpdateResponse, SchemaEntityResponse, SchemaFieldResponse, SchemaFieldsResponse,
+    SummaryField, UpdateFieldRequest, UploadInfoResponse,
 };
 use log::{debug, error, trace};
 use reqwest::Response;
@@ -172,11 +172,13 @@ use reqwest::Response;
 // FIXME: re-export the whole reqwest crate.
 pub use reqwest::{Certificate, Client};
 use std::collections::HashMap;
+mod entity_relationship_read;
 mod search;
 mod summarize;
 mod text_search;
 pub mod types;
 mod upload;
+pub use crate::entity_relationship_read::EntityRelationshipReadReqBuilder;
 pub use crate::summarize::SummarizeReqBuilder;
 use crate::text_search::TextSearchBuilder;
 pub use search::SearchBuilder;
@@ -733,7 +735,7 @@ impl Shotgun {
 
         if let Some(fields) = entity_fields {
             for (key, value) in fields {
-                req = req.query(&[(json!(key), json!(value))]);
+                req = req.query(&[(json!(key), json!(value))]); // FIXME: should not be jsonified.
             }
         }
         handle_response(req.send().await?).await
@@ -741,40 +743,14 @@ impl Shotgun {
 
     /// Provides access to records related to the current entity record via the entity or multi-entity field.
     /// <https://developer.shotgunsoftware.com/rest-api/#read-record-relationship>
-    pub async fn entity_relationship_read<D: 'static>(
-        &self,
-        token: &str,
-        entity: &str,
+    pub fn entity_relationship_read<'a>(
+        &'a self,
+        token: &'a str,
+        entity: &'a str,
         entity_id: i32,
-        related_field: &str,
-        options: Option<OptionsParameter>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/{}/{}/relationships/{}",
-                self.sg_server, entity, entity_id, related_field
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-        if let Some(opts) = options {
-            if let Some(val) = opts.include_archived_projects {
-                req = req.query(&[("options[include_archived_projects]", val)]);
-            }
-            if let Some(val) = opts.return_only {
-                req = req.query(&[(
-                    "options[return_only]",
-                    match val {
-                        ReturnOnly::Active => "active",
-                        ReturnOnly::Retired => "retired",
-                    },
-                )]);
-            }
-        }
-        handle_response(req.send().await?).await
+        related_field: &'a str,
+    ) -> EntityRelationshipReadReqBuilder<'a> {
+        EntityRelationshipReadReqBuilder::new(&self, token, entity, entity_id, related_field)
     }
 
     /// Provides the information for where an upload should be sent and how to connect the upload
