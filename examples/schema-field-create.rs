@@ -28,11 +28,8 @@
 //! Also listed in the struct types/SchemaFieldRecord
 //!
 
-use serde_json::Value;
-use shotgun_rs::types::{
-    CreateFieldRequest, CreateUpdateFieldProperty, FieldDataType, SchemaFieldResponse,
-};
-use shotgun_rs::Shotgun;
+use shotgun_rs::types::FieldDataType;
+use shotgun_rs::{Shotgun, TokenResponse};
 use std::env;
 
 #[tokio::main]
@@ -43,34 +40,25 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_name = env::var("SG_SCRIPT_NAME").expect("SG_SCRIPT_NAME is required var.");
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
-    let entity_type: Option<String> = env::args().nth(1);
-    let property_name: Option<String> = env::args().nth(2);
-    let property_value: Option<String> = env::args().nth(3);
+    let entity_type = env::args().nth(1).expect("entity type");
+    let property_name = env::args().nth(2).expect("property name");
+    let property_value = env::args().nth(3).expect("property value");
 
     println!(
-        "Attempting to add {:?} to {:?} with the type of TEXT and value of {:?}",
+        "Attempting to add {} to {} with the type of TEXT and value of {}",
         property_name, entity_type, property_value
     );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    let properties = CreateUpdateFieldProperty {
-        property_name: property_name.unwrap(),
-        value: property_value.unwrap(),
-    };
-
-    let data = CreateFieldRequest {
-        data_type: FieldDataType::Text,
-        properties: vec![properties],
-    };
-
-    let resp: SchemaFieldResponse = sg
-        .schema_field_create(&token, &entity_type.unwrap(), &data)
+    let resp = sg
+        .schema_field_create(
+            &access_token,
+            &entity_type,
+            FieldDataType::Text,
+            vec![(property_name, property_value)],
+        )
         .await?;
 
     println!("{:?}", resp);

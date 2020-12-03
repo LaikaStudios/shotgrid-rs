@@ -159,11 +159,12 @@ use serde_json::{json, Value};
 #[macro_use]
 extern crate failure;
 use crate::types::{
-    AltImages, BatchedRequestsResponse, CreateFieldRequest, EntityActivityStreamResponse,
-    EntityIdentifier, ErrorObject, ErrorResponse, FieldHashResponse, HierarchyExpandRequest,
-    HierarchyExpandResponse, HierarchySearchRequest, HierarchySearchResponse,
-    ProjectAccessUpdateResponse, SchemaEntityResponse, SchemaFieldResponse, SchemaFieldsResponse,
-    SummaryField, UpdateFieldRequest, UploadInfoResponse,
+    AltImages, BatchedRequestsResponse, CreateFieldRequest, CreateUpdateFieldProperty,
+    EntityActivityStreamResponse, EntityIdentifier, ErrorObject, ErrorResponse, FieldDataType,
+    FieldHashResponse, HierarchyExpandRequest, HierarchyExpandResponse, HierarchySearchRequest,
+    HierarchySearchResponse, ProjectAccessUpdateResponse, SchemaEntityResponse,
+    SchemaFieldResponse, SchemaFieldsResponse, SummaryField, UpdateFieldRequest,
+    UploadInfoResponse,
 };
 use log::{debug, error, trace};
 use reqwest::Response;
@@ -173,6 +174,7 @@ use reqwest::Response;
 pub use reqwest::{Certificate, Client};
 use std::collections::HashMap;
 mod entity_relationship_read;
+mod schema;
 mod search;
 mod summarize;
 mod text_search;
@@ -475,12 +477,20 @@ impl Shotgun {
 
     /// Create a new field on the given entity
     /// <https://developer.shotgunsoftware.com/rest-api/#create-new-field-on-entity>
-    pub async fn schema_field_create(
+    pub async fn schema_field_create<P>(
         &self,
         token: &str,
         entity_type: &str,
-        data: &CreateFieldRequest,
-    ) -> Result<SchemaFieldResponse> {
+        data_type: FieldDataType,
+        properties: Vec<P>,
+    ) -> Result<SchemaFieldResponse>
+    where
+        P: Into<CreateUpdateFieldProperty>,
+    {
+        let body = CreateFieldRequest {
+            data_type,
+            properties: properties.into_iter().map(Into::into).collect(),
+        };
         let req = self
             .client
             .post(&format!(
@@ -489,7 +499,7 @@ impl Shotgun {
             ))
             .bearer_auth(token)
             .header("Accept", "application/json")
-            .json(&json!(data));
+            .json(&body);
 
         handle_response(req.send().await?).await
     }
@@ -585,13 +595,21 @@ impl Shotgun {
 
     /// Update the properties of a field on an entity
     /// <https://developer.shotgunsoftware.com/rest-api/#revive-one-field-from-an-entity>
-    pub async fn schema_field_update(
+    pub async fn schema_field_update<P>(
         &self,
         token: &str,
         entity_type: &str,
         field_name: &str,
-        data: &UpdateFieldRequest,
-    ) -> Result<SchemaFieldResponse> {
+        properties: Vec<P>,
+        project_id: Option<i32>,
+    ) -> Result<SchemaFieldResponse>
+    where
+        P: Into<CreateUpdateFieldProperty>,
+    {
+        let body = UpdateFieldRequest {
+            properties: properties.into_iter().map(Into::into).collect(),
+            project_id,
+        };
         let req = self
             .client
             .put(&format!(
@@ -600,7 +618,7 @@ impl Shotgun {
             ))
             .bearer_auth(token)
             .header("Accept", "application/json")
-            .json(&json!(data));
+            .json(&body);
         handle_response(req.send().await?).await
     }
 

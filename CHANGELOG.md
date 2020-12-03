@@ -2,6 +2,11 @@
 
 ### Breaking Changes
 
+- `Shotgun::schema_field_create()` no longer accepts a `CreateFieldRequest`.
+  Instead it takes separate `data_type` and `properties` parameters.
+- `Shotgun::schema_field_update()` no longer accepts an `UpdateFieldRequest`.
+  Instead it takes separate `properties` and `project_id` parameters.
+
 #### Builders
 
 A number of methods have been updated to use the
@@ -26,7 +31,7 @@ well-understood defaults available.
   OpenApi spec.
 - A high-level `Shotgun::upload()` supporting both Shotgun and S3 storage
   services.
-- `From` impls added for `SummaryField` and `Grouping` so they can be
+- `From` impls added for `CreateUpdateFieldProperty`, `SummaryField`, and `Grouping` so they can be
   conveniently built from tuples.
 
 ### Fixed
