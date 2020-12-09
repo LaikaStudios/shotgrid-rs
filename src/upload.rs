@@ -31,6 +31,7 @@
 //! <https://developer.shotgunsoftware.com/rest-api/#shotgun-rest-api-Uploading-and-Downloading-Files>
 use crate::types::{Entity, NextUploadPartResponse, UploadInfoResponse, UploadResponse};
 use crate::{handle_response, Result, Shotgun, ShotgunError};
+use mime_guess::Mime;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
 use std::io::Read;
@@ -60,6 +61,7 @@ pub struct UploadReqBuilder<'a, R: Read> {
     /// Effectively, this tells Shotgun what content-type header to send
     /// with it.
     filename: &'a str,
+    mimetype: Option<Mime>,
     /// The bytes of the file to upload.
     ///
     /// Can be any type that implements `Read`.
@@ -95,6 +97,13 @@ where
             entity_id,
             field,
             filename,
+            // Take a guess at the mimetype based on the original filename.
+            // If `mime_guess` doesn't have a good guess this will end up
+            // falling back to `application/octet-stream`.
+            //
+            // XXX: maybe we could open this up to the caller and make them do
+            // the guessing? That's what Shotgun did to us after all...
+            mimetype: mime_guess::from_path(filename).first(),
             file_content,
             // Optional stuff
             display_name: None,
@@ -173,6 +182,7 @@ where
         sg: &Shotgun,
         token: &str,
         file_content: R,
+        mimetype: Option<Mime>,
         upload_url: String,
         get_next_part: String,
         chunk_size: usize,
@@ -254,7 +264,7 @@ where
 
             let buf_len = body_buf.len();
             let upload_resp = {
-                let upload_req = sg
+                let mut upload_req = sg
                     .client
                     .put(&upload_url)
                     .header("Content-Length", buf_len)
@@ -274,6 +284,11 @@ where
                         .collect::<Vec<_>>(),
                     )
                     .header("Accept", "application/json");
+
+                if let Some(ref mimetype) = mimetype {
+                    upload_req = upload_req.header("Content-Type", mimetype.as_ref());
+                }
+
                 // TODO: add some retries to this
                 upload_req.send().await?.error_for_status().map_err(|e| {
                     let reason = if let Some(status) = e.status() {
@@ -394,6 +409,7 @@ where
             entity_id,
             field,
             filename,
+            mimetype,
             mut file_content,
             display_name,
             tags,
@@ -498,12 +514,16 @@ where
             (StorageService::Shotgun, false) => {
                 let mut body = vec![];
                 file_content.read_to_end(&mut body)?;
-                let upload_req = sg
+                let mut upload_req = sg
                     .client
                     .put(upload_url)
                     .body(body)
                     .header("Accept", "application/json")
                     .bearer_auth(token);
+
+                if let Some(ref mimetype) = mimetype {
+                    upload_req = upload_req.header("Content-Type", mimetype.as_ref());
+                }
 
                 let upload_resp: UploadResponse = handle_response(upload_req.send().await?).await?;
 
@@ -524,13 +544,17 @@ where
                 let mut body = vec![];
                 file_content.read_to_end(&mut body)?;
                 // S3 uses tokens in the query string instead of auth headers.
-                let upload_resp = sg
+                let mut upload_req = sg
                     .client
                     .put(upload_url)
                     .body(body)
-                    .header("Accept", "application/json")
-                    .send()
-                    .await?;
+                    .header("Accept", "application/json");
+
+                if let Some(ref mimetype) = mimetype {
+                    upload_req = upload_req.header("Content-Type", mimetype.as_ref());
+                }
+
+                let upload_resp = upload_req.send().await?;
                 // This should be a 200, but just in case AWS change their mind
                 // about signalling, we'll look for any 2xx.
                 if !upload_resp.status().is_success() {
@@ -552,6 +576,7 @@ where
                     &sg,
                     token,
                     file_content,
+                    mimetype,
                     upload_url.clone(),
                     get_next_part,
                     multipart_chunk_size,

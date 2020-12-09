@@ -1,5 +1,6 @@
 # (Unreleased)
 
+
 ### Breaking Changes
 
 - `Shotgun::schema_field_create()` no longer accepts a `CreateFieldRequest`.
@@ -38,6 +39,15 @@ well-understood defaults available.
 
 - `Shotgun::text_search()` no longer panics if given an empty map of entity
   filters.
+
+
+# [v0.8.3](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.8.2...v0.8.3) (2020-12-08)
+
+### Fixed
+
+- `Shotgun::upload()` will now set the `content-type` header *based on a guess*
+  (informed by the original filename) so the record of the upload in Shotgun
+  isn't always `application/octet-stream` (the default).
 
 # [v0.8.2](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.8.1...v0.8.2) (2020-11-25)
 
