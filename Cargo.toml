@@ -1,6 +1,6 @@
 [package]
 name = "shotgun-rs"
-version = "0.8.2"
+version = "0.8.3"
 authors = ["Owen Nelson <onelson@laika.com>", "Alex Widener <awidener@laika.com>"]
 edition = "2018"
 
@@ -11,6 +11,7 @@ reqwest = { version = "0.10.9", default-features = false, features = ["json"] }
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
+mime_guess = "2.0"
 
 [dev-dependencies]
 rpassword = "3.0.2"
