@@ -53,7 +53,7 @@
 //! #    let script_key = "********";
 //! #    let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
 //! // Authenticates using the script name and script key held by the client.
-//! let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+//! let sess = sg.authenticate_script().await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -104,14 +104,14 @@
 //!
 //!     let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
 //!
-//!     let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+//!     let sess = sg.authenticate_script().await?;
 //!
 //!     let return_fields = ["id", "code", "name"].join(",");
 //!
 //!     // Using type ascription (or a turbofish), we tell search() how to
 //!     // deserialize the response.
-//!     let resp: ResourceArrayResponse<Project, PaginationLinks> = sg
-//!         .search(&access_token, "Project", &return_fields, &json!([]))?
+//!     let resp: ResourceArrayResponse<Project, PaginationLinks> = sess
+//!         .search("Project", &return_fields, &json!([]))?
 //!         .size(Some(3))
 //!         .execute()
 //!         .await?;
@@ -155,34 +155,27 @@ use std::io::Read;
 #[macro_use]
 extern crate serde_derive;
 use serde::de::DeserializeOwned;
-use serde_json::{json, Value};
+use serde_json::Value;
 #[macro_use]
 extern crate failure;
-use crate::types::{
-    AltImages, BatchedRequestsResponse, CreateFieldRequest, CreateUpdateFieldProperty,
-    EntityActivityStreamResponse, EntityIdentifier, ErrorObject, ErrorResponse, FieldDataType,
-    FieldHashResponse, HierarchyExpandRequest, HierarchyExpandResponse, HierarchySearchRequest,
-    HierarchySearchResponse, ProjectAccessUpdateResponse, SchemaEntityResponse,
-    SchemaFieldResponse, SchemaFieldsResponse, SummaryField, UpdateFieldRequest,
-    UploadInfoResponse,
-};
+use crate::types::{ErrorObject, ErrorResponse};
 use log::{debug, error, trace};
 use reqwest::Response;
 /// Re-export to provide access in case callers need to manually configure the
 /// Client via `Shotgun::with_client()`.
 // FIXME: re-export the whole reqwest crate.
 pub use reqwest::{Certificate, Client};
-use std::collections::HashMap;
 mod entity_relationship_read;
 mod schema;
 mod search;
+mod session;
 mod summarize;
 mod text_search;
 pub mod types;
 mod upload;
 pub use crate::entity_relationship_read::EntityRelationshipReadReqBuilder;
+pub use crate::session::Session;
 pub use crate::summarize::SummarizeReqBuilder;
-use crate::text_search::TextSearchBuilder;
 pub use search::SearchBuilder;
 pub use upload::{UploadReqBuilder, MAX_MULTIPART_CHUNK_SIZE, MIN_MULTIPART_CHUNK_SIZE};
 
@@ -274,10 +267,7 @@ impl Shotgun {
     }
 
     /// Handles running authentication requests.
-    async fn authenticate<D: 'static>(&self, form_data: &[(&str, &str)]) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
+    async fn authenticate(&self, form_data: &[(&str, &str)]) -> Result<TokenResponse> {
         let resp = self
             .client
             .post(&format!("{}/api/v1/auth/access_token", self.sg_server))
@@ -289,36 +279,35 @@ impl Shotgun {
     }
 
     /// Run a credential (human user logging in) challenge.
-    pub async fn authenticate_user<D: 'static>(&self, username: &str, password: &str) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        self.authenticate(&[
-            ("grant_type", "password"),
-            ("username", username),
-            ("password", password),
-        ])
-            .await
+    pub async fn authenticate_user(&self, username: &str, password: &str) -> Result<Session<'_>> {
+        Ok(Session::new(
+            self,
+            self.authenticate(&[
+                ("grant_type", "password"),
+                ("username", username),
+                ("password", password),
+            ])
+                .await?,
+        ))
     }
 
     /// Get an access token payload for a given Api User aka "script."
     ///
     /// This function relies on the script key and name fields being set and will fail with a
     /// `ShotgunError::BadClientConfig` if either is missing.
-    pub async fn authenticate_script<D: 'static>(&self) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
+    pub async fn authenticate_script(&self) -> Result<Session<'_>> {
         if let (Some(script_name), Some(script_key)) =
         (self.script_name.as_ref(), self.script_key.as_ref())
         {
-            Ok(self
-                .authenticate(&[
+            Ok(Session::new(
+                self,
+                self.authenticate(&[
                     ("grant_type", "client_credentials"),
                     ("client_id", &script_name),
                     ("client_secret", &script_key),
                 ])
-                .await?)
+                    .await?,
+            ))
         } else {
             Err(ShotgunError::BadClientConfig(
                 "Missing script name or key.".into(),
@@ -331,40 +320,25 @@ impl Shotgun {
     ///
     /// This function relies on the script key and name fields being set and will fail with a
     /// `ShotgunError::BadClientConfig` if either is missing.
-    pub async fn authenticate_script_as_user<D: 'static>(&self, login: &str) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
+    pub async fn authenticate_script_as_user(&self, login: &str) -> Result<Session<'_>> {
         if let (Some(script_name), Some(script_key)) =
         (self.script_name.as_ref(), self.script_key.as_ref())
         {
-            Ok(self
-                .authenticate(&[
+            Ok(Session::new(
+                self,
+                self.authenticate(&[
                     ("grant_type", "client_credentials"),
                     ("client_id", &script_name),
                     ("client_secret", &script_key),
                     ("scope", &format!("sudo_as_login:{}", login)),
                 ])
-                .await?)
+                    .await?,
+            ))
         } else {
             Err(ShotgunError::BadClientConfig(
                 "Missing script name or key.".into(),
             ))
         }
-    }
-
-    /// Provides the values of a subset of site preferences.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-preferences>
-    pub async fn preferences_read<D: 'static>(&self, token: &str) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let req = self
-            .client
-            .get(&format!("{}/api/v1/preferences", self.sg_server))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-        handle_response(req.send().await?).await
     }
 
     /// Provides version information about the Shotgun server and the REST API.
@@ -379,1007 +353,6 @@ impl Shotgun {
             .header("Accept", "application/json");
 
         handle_response(req.send().await?).await
-    }
-
-    /// Read the work day rules for each day specified in the query.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-work-day-rules>
-    pub async fn work_days_rules_read<D: 'static>(
-        &self,
-        token: &str,
-        start_date: &str,
-        end_date: &str,
-        project_id: Option<i32>,
-        user_id: Option<i32>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/schedule/work_day_rules?start_date={}&end_date={}",
-                self.sg_server, start_date, end_date
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        if let Some(pid) = project_id {
-            req = req.query(&[("project_id", pid)]);
-        }
-
-        if let Some(uid) = user_id {
-            req = req.query(&[("user_id", uid)])
-        }
-
-        handle_response(req.send().await?).await
-    }
-
-    pub async fn schema_read<D: 'static>(&self, token: &str, project_id: Option<i32>) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut req = self
-            .client
-            .get(&format!("{}/api/v1/schema", self.sg_server))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        if let Some(id) = project_id {
-            req = req.query(&[("project_id", id)]);
-        }
-        handle_response(req.send().await?).await
-    }
-
-    /// Return schema information for the given entity.
-    /// Entity should be a snake cased version of the entity name.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-schema-for-a-single-entity>
-    pub async fn schema_entity_read(
-        &self,
-        token: &str,
-        project_id: Option<i32>,
-        entity: &str,
-    ) -> Result<SchemaEntityResponse> {
-        let mut req = self
-            .client
-            .get(&format!("{}/api/v1/schema/{}", self.sg_server, entity))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        if let Some(id) = project_id {
-            req = req.query(&[("project_id", id)]);
-        }
-        handle_response(req.send().await?).await
-    }
-
-    /// Return all schema field information for a given entity.
-    /// Entity should be a snake cased version of the entity name.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-all-field-schemas-for-an-entity>
-    pub async fn schema_fields_read(
-        &self,
-        token: &str,
-        project_id: Option<i32>,
-        entity: &str,
-    ) -> Result<SchemaFieldsResponse> {
-        let mut req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/schema/{}/fields",
-                self.sg_server, entity
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        if let Some(id) = project_id {
-            req = req.query(&[("project_id", id)]);
-        }
-        handle_response(req.send().await?).await
-    }
-
-    /// Create a new field on the given entity
-    /// <https://developer.shotgunsoftware.com/rest-api/#create-new-field-on-entity>
-    pub async fn schema_field_create<P>(
-        &self,
-        token: &str,
-        entity_type: &str,
-        data_type: FieldDataType,
-        properties: Vec<P>,
-    ) -> Result<SchemaFieldResponse>
-    where
-        P: Into<CreateUpdateFieldProperty>,
-    {
-        let body = CreateFieldRequest {
-            data_type,
-            properties: properties.into_iter().map(Into::into).collect(),
-        };
-        let req = self
-            .client
-            .post(&format!(
-                "{}/api/v1/schema/{}/fields",
-                self.sg_server, entity_type,
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&body);
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Delete a field on a given entity
-    /// <https://developer.shotgunsoftware.com/rest-api/#delete-one-field-from-an-entity>
-    pub async fn schema_field_delete(
-        &self,
-        token: &str,
-        entity_type: &str,
-        field_name: &str,
-    ) -> Result<()> {
-        let url = format!(
-            "{}/api/v1/schema/{}/fields/{}",
-            self.sg_server, entity_type, field_name
-        );
-        let req = self
-            .client
-            .delete(&url)
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .send()
-            .await?;
-
-        if req.status().is_success() {
-            Ok(())
-        } else {
-            Err(ShotgunError::Unexpected(format!(
-                "Server responded to `DELETE {}` with `{}`",
-                &url,
-                req.status()
-            )))
-        }
-    }
-
-    /// Revive one field from an entity.
-    /// <https://developer.shotgunsoftware.com/rest-api/#revive-one-field-from-an-entity>
-    pub async fn schema_field_revive(
-        &self,
-        token: &str,
-        entity_type: &str,
-        field_name: &str,
-    ) -> Result<()> {
-        let url = format!(
-            "{}/api/v1/schema/{}/fields/{}?revive=true",
-            self.sg_server, entity_type, field_name
-        );
-
-        let req = self
-            .client
-            .post(&url)
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .send()
-            .await?;
-
-        if req.status().is_success() {
-            Ok(())
-        } else {
-            Err(ShotgunError::Unexpected(format!(
-                "Server responded to `POST {}` with `{}`",
-                &url,
-                req.status()
-            )))
-        }
-    }
-
-    /// Returns schema information about a specific field on a given entity.
-    /// Entity should be a snaked cased version of the entity name.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-one-field-schema-for-an-entity>
-    pub async fn schema_field_read(
-        &self,
-        token: &str,
-        project_id: Option<i32>,
-        entity: &str,
-        field_name: &str,
-    ) -> Result<SchemaFieldResponse> {
-        let mut req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/schema/{}/fields/{}",
-                self.sg_server, entity, field_name,
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        if let Some(id) = project_id {
-            req = req.query(&[("project_id", id)]);
-        }
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Update the properties of a field on an entity
-    /// <https://developer.shotgunsoftware.com/rest-api/#revive-one-field-from-an-entity>
-    pub async fn schema_field_update<P>(
-        &self,
-        token: &str,
-        entity_type: &str,
-        field_name: &str,
-        properties: Vec<P>,
-        project_id: Option<i32>,
-    ) -> Result<SchemaFieldResponse>
-    where
-        P: Into<CreateUpdateFieldProperty>,
-    {
-        let body = UpdateFieldRequest {
-            properties: properties.into_iter().map(Into::into).collect(),
-            project_id,
-        };
-        let req = self
-            .client
-            .put(&format!(
-                "{}/api/v1/schema/{}/fields/{}",
-                self.sg_server, entity_type, field_name
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&body);
-        handle_response(req.send().await?).await
-    }
-
-    /// Provides access to the activity stream of an entity
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-entity-activity-stream>
-    pub async fn entity_activity_stream_read(
-        &self,
-        token: &str,
-        entity_type: &str,
-        entity_id: i32,
-    ) -> Result<EntityActivityStreamResponse> {
-        let req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/{}/{}/activity_stream",
-                self.sg_server, entity_type, entity_id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Provides access to the list of users that follow an entity.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-entity-followers>
-    pub async fn entity_followers_read<D: 'static>(
-        &self,
-        token: &str,
-        entity: &str,
-        entity_id: i32,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/{}/{}/followers",
-                self.sg_server, entity, entity_id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-        handle_response(req.send().await?).await
-    }
-
-    /// Allows a user to follow one or more entities
-    /// <https://developer.shotgunsoftware.com/rest-api/#follow-an-entity>
-    pub async fn entity_follow_update<D: 'static>(
-        &self,
-        token: &str,
-        user_id: i32,
-        entities: Vec<EntityIdentifier>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let request = self
-            .client
-            .post(&format!(
-                "{}/api/v1/entity/human_users/{}/follow",
-                self.sg_server, user_id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&json!({ "entities": entities }));
-
-        handle_response(request.send().await?).await
-    }
-
-    /// Allows a user to unfollow a single entity.
-    /// <https://developer.shotgunsoftware.com/rest-api/#unfollow-an-entity>
-    pub async fn entity_unfollow_update<D: 'static>(
-        &self,
-        token: &str,
-        user_id: i32,
-        entity_type: &str,
-        entity_id: i32,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let request = self
-            .client
-            .put(&format!(
-                "{}/api/v1/entity/{}/{}/unfollow",
-                self.sg_server, entity_type, entity_id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&json!({ "user_id": user_id }));
-
-        handle_response(request.send().await?).await
-    }
-
-    /// Provides access to the list of entities a user follows.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-user-follows>
-    pub async fn user_follows_read<D: 'static>(&self, token: &str, user_id: i32) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/human_users/{}/following",
-                self.sg_server, user_id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Provides access to the thread content of an entity. Currently only note is supported.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-the-thread-contents-for-a-note>
-    pub async fn thread_contents_read<D: 'static>(
-        &self,
-        token: &str,
-        note_id: i32,
-        entity_fields: Option<HashMap<String, String>>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/notes/{}/thread_contents",
-                self.sg_server, note_id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        if let Some(fields) = entity_fields {
-            for (key, value) in fields {
-                req = req.query(&[(json!(key), json!(value))]); // FIXME: should not be jsonified.
-            }
-        }
-        handle_response(req.send().await?).await
-    }
-
-    /// Provides access to records related to the current entity record via the entity or multi-entity field.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-record-relationship>
-    pub fn entity_relationship_read<'a>(
-        &'a self,
-        token: &'a str,
-        entity: &'a str,
-        entity_id: i32,
-        related_field: &'a str,
-    ) -> EntityRelationshipReadReqBuilder<'a> {
-        EntityRelationshipReadReqBuilder::new(&self, token, entity, entity_id, related_field)
-    }
-
-    /// Provides the information for where an upload should be sent and how to connect the upload
-    /// to an entity once it has been uploaded.
-    /// <https://developer.shotgunsoftware.com/rest-api/#get-upload-url-for-record>
-    pub async fn entity_upload_url_read(
-        &self,
-        token: &str,
-        entity: &str,
-        entity_id: i32,
-        filename: &str,
-        multipart_upload: Option<bool>,
-    ) -> Result<UploadInfoResponse> {
-        let mut params = vec![("filename", filename)];
-        if multipart_upload.unwrap_or(false) {
-            params.push(("multipart_upload", "true"));
-        }
-
-        let req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/{}/{}/_upload",
-                self.sg_server, entity, entity_id
-            ))
-            .query(&params)
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Provides the information for where an upload should be sent and how to connect the upload
-    /// to a field once it has been uploaded.
-    /// <https://developer.shotgunsoftware.com/rest-api/#get-upload-url-for-field>
-    pub async fn entity_field_upload_url_read<D: 'static>(
-        &self,
-        token: &str,
-        entity: &str,
-        entity_id: i32,
-        file_name: &str,
-        field_name: &str,
-        multipart_upload: Option<bool>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut params = vec![("filename", file_name)];
-        if multipart_upload.unwrap_or(false) {
-            params.push(("multipart_upload", "true"));
-        }
-
-        let req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/{}/{}/{}/_upload",
-                self.sg_server, entity, entity_id, field_name
-            ))
-            .query(&params)
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Provide access to information about an image or attachment field. You can optionally
-    /// use the alt query parameter to download the associated image or attachment (maybe...)
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-file-field>
-    pub async fn entity_file_field_read(
-        &self,
-        token: &str,
-        entity_type: &str,
-        entity_id: i32,
-        field_name: &str,
-        alt: Option<AltImages>,
-        range: Option<String>,
-    ) -> Result<FieldHashResponse> {
-        let mut req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/{}/{}/{}",
-                self.sg_server, entity_type, entity_id, field_name
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        if let Some(val) = alt {
-            req = req.query(&[("alt", val)]);
-        }
-
-        if let Some(val) = range {
-            req = req.header("Range", &val);
-        }
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Apparently this is an internal means for interrogating the navigation
-    /// system in Shotgun.
-    ///
-    /// Undocumented in the Python API, in fact the only mention is in the
-    /// changelog from years ago:
-    /// <https://developer.shotgunsoftware.com/python-api/changelog.html?highlight=hierarchy>
-    ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#hierarchy-expand>
-    pub async fn hierarchy_expand(
-        &self,
-        token: &str,
-        data: HierarchyExpandRequest,
-    ) -> Result<HierarchyExpandResponse> {
-        let req = self
-            .client
-            .post(&format!("{}/api/v1/hierarchy/_expand", self.sg_server))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&data);
-        handle_response(req.send().await?).await
-    }
-
-    /// Apparently this is an internal means for interrogating the navigation
-    /// system in Shotgun.
-    ///
-    /// Undocumented in the Python API, in fact the only mention is in the
-    /// changelog from years ago:
-    /// <https://developer.shotgunsoftware.com/python-api/changelog.html?highlight=hierarchy>
-    ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#hierarchy-search>
-    pub async fn hierarchy_search(
-        &self,
-        token: &str,
-        data: HierarchySearchRequest,
-    ) -> Result<HierarchySearchResponse> {
-        let req = self
-            .client
-            .post(&format!("{}/api/v1/hierarchy/_search", self.sg_server))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&data);
-        handle_response(req.send().await?).await
-    }
-
-    /// Batch execute requests
-    pub async fn batch(&self, token: &str, data: Value) -> Result<BatchedRequestsResponse> {
-        let req = self
-            .client
-            .post(&format!("{}/api/v1/entity/_batch", self.sg_server))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&data);
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Create a new entity.
-    ///
-    /// The `data` field is used the request body, and as such should be an object where the keys
-    /// are fields on the entity in question.
-    ///
-    /// `fields` can be specified to limit the returned fields from the request.
-    /// `fields` is an optional comma separated list of field names to return in the response.
-    /// Passing `None` will use the default behavior of returning _all fields_.
-    pub async fn create<D: 'static>(
-        &self,
-        token: &str,
-        entity: &str,
-        data: Value,
-        fields: Option<&str>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut req = self
-            .client
-            .post(&format!("{}/api/v1/entity/{}", self.sg_server, entity,))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&data);
-
-        if let Some(fields) = fields {
-            req = req.query(&[("options[fields]", fields)]);
-        }
-        handle_response(req.send().await?).await
-    }
-
-    /// Read the data for a single entity.
-    ///
-    /// `fields` is an optional comma separated list of field names to return in the response.
-    pub async fn read<D: 'static>(
-        &self,
-        token: &str,
-        entity: &str,
-        id: i32,
-        fields: Option<&str>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut req = self
-            .client
-            .get(&format!(
-                "{}/api/v1/entity/{}/{}",
-                self.sg_server, entity, id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        if let Some(fields) = fields {
-            req = req.query(&[("fields", fields)]);
-        }
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Modify an existing entity.
-    ///
-    /// `data` is used as the request body and as such should be an object with keys and values
-    /// corresponding to the fields on the given entity.
-    pub async fn update<D: 'static>(
-        &self,
-        token: &str,
-        entity: &str,
-        id: i32,
-        data: Value,
-        fields: Option<&str>,
-    ) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let mut req = self
-            .client
-            .put(&format!(
-                "{}/api/v1/entity/{}/{}",
-                self.sg_server, entity, id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&data);
-
-        if let Some(fields) = fields {
-            req = req.query(&[("options[fields]", fields)]);
-        }
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Destroy (delete) an entity.
-    pub async fn destroy(&self, token: &str, entity: &str, id: i32) -> Result<()> {
-        let url = format!("{}/api/v1/entity/{}/{}", self.sg_server, entity, id,);
-        let resp = self
-            .client
-            .delete(&url)
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .send()
-            .await?;
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            Err(ShotgunError::Unexpected(format!(
-                "Server responded to `DELETE {}` with `{}`",
-                &url,
-                resp.status()
-            )))
-        }
-    }
-
-    /// Revive an entity.
-    /// <https://developer.shotgunsoftware.com/rest-api/#revive-a-record>
-    pub async fn revive<D: 'static>(&self, token: &str, entity: &str, entity_id: i32) -> Result<D>
-        where
-            D: DeserializeOwned,
-    {
-        let req = self
-            .client
-            .post(&format!(
-                "{}/api/v1/entity/{}/{}?revive=true",
-                self.sg_server, entity, entity_id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json");
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Find a list of entities matching some filter criteria.
-    ///
-    /// Search provides access to the Shotgun filter APIs, serving the same use cases as
-    /// `find` from the Python client API.
-    ///
-    /// Filters come in 2 flavors, `Array` and `Hash`. These names refer to the shape of the data
-    /// structure the filters are stored in. `Array` is the more simple of the two, and `Hash`
-    /// offers more complex filter operations.
-    ///
-    /// For details on the filter syntax, please refer to the docs:
-    ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#searching>
-    ///
-    pub fn search<'a>(
-        &'a self,
-        token: &'a str,
-        entity: &'a str,
-        fields: &'a str,
-        filters: &'a Value,
-    ) -> Result<SearchBuilder<'a>> {
-        Ok(SearchBuilder::new(self, token, entity, fields, filters)?)
-    }
-
-    /// Search for entities of the given type(s) and returns a list of *basic* entity data
-    /// that fits the search. Rich filters can be used to narrow down searches to entities
-    /// that match the filters.
-    ///
-    /// The `Shotgun::text_search()` method will prepare and return a
-    /// `TextSearchBuilder` which can be used to configure some optional aspects
-    /// of the process such as setting pagination parameters or sort order.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use serde_json::{json, Value};
-    /// use shotgun_rs::{Shotgun, TokenResponse};
-    /// use shotgun_rs::types::{ResourceArrayResponse, SelfLink};
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// let server = String::from("https://shotgun.example.com");
-    /// let sg = Shotgun::new(server, Some("my-api-user"), Some("********"))?;
-    /// let TokenResponse { access_token, .. } = sg.authenticate_script_as_user("nbabcock").await?;
-    ///
-    /// let entity_filters = vec![
-    ///     ("Asset", json!([["sg_status_list", "is_not", "omt"]]))
-    /// ]
-    /// .into_iter()
-    /// .collect();
-    ///
-    /// let resp: ResourceArrayResponse<Value, SelfLink> = sg
-    ///     .text_search(&access_token, Some("Mr. Penderghast"), entity_filters)
-    ///     .size(Some(5))
-    ///     .execute()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Caveats
-    ///
-    /// > **Important**: performing text searches requires a `HumanUser` and *not
-    /// > an `ApiUser`*.
-    /// > Either the access token used must belong to a `HumanUser` or must have
-    /// > been acquired with the "sudo as" `Shotgun::authenticate_script_as_user()`
-    /// > method.
-    /// >
-    /// > Failing to supply a valid `HumanUser` for this operation will get you
-    /// > a `500` response from shotgun, with a 100 "unknown" error code.
-    ///
-    /// For details on the filter syntax, please refer to the docs:
-    ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#search-text-entries>
-    pub fn text_search<'a>(
-        &'a self,
-        token: &'a str,
-        text: Option<&'a str>,
-        entity_filters: HashMap<&'a str, Value>,
-    ) -> TextSearchBuilder<'a> {
-        TextSearchBuilder::new(self, token, text, entity_filters)
-    }
-
-    /// Make a summarize request.
-    ///
-    /// This is similar to the aggregate/grouping mechanism provided by SQL
-    /// where you can specify `GROUP BY` and `HAVING` clauses in order to rollup
-    /// query results into buckets.
-    ///
-    /// ```no_run
-    /// use serde_json::{json, Value};
-    /// use shotgun_rs::{Shotgun, TokenResponse};
-    /// use shotgun_rs::types::{ResourceArrayResponse, SelfLink};
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// use shotgun_rs::types::SummaryFieldType;
-    /// let server = String::from("https://shotgun.example.com");
-    /// let sg = Shotgun::new(server, Some("my-api-user"), Some("********"))?;
-    /// let TokenResponse { access_token, .. } = sg.authenticate_script_as_user("nbabcock").await?;
-    ///
-    /// let filters = json!([["project", "is", {"type": "Project", "id": 4 }]]);
-    /// let summary_fields = vec![("id", SummaryFieldType::Count).into()];
-    ///
-    /// let summary = sg
-    ///     .summarize(&access_token, "Asset", Some(filters), summary_fields)
-    ///     .execute()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// For more on summary queries, see:
-    ///
-    /// - <https://developer.shotgunsoftware.com/rest-api/#summarize-field-data>
-    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.summarize>
-    pub fn summarize<'a>(
-        &'a self,
-        token: &'a str,
-        entity: &'a str,
-        // FIXME: python api treats filters as required (and we fallback to empty array).
-        //  Maybe just make it required?
-        filters: Option<Value>,
-        summary_fields: Vec<SummaryField>,
-    ) -> SummarizeReqBuilder {
-        summarize::SummarizeReqBuilder::new(self, token, entity, filters, summary_fields)
-    }
-
-    /// Update the last access time of a project by a user.
-    /// <https://developer.shotgunsoftware.com/rest-api/#tocSbatchedrequestsresponse>
-    pub async fn project_last_accessed_update(
-        &self,
-        token: &str,
-        project_id: i32,
-        user_id: i32,
-    ) -> Result<ProjectAccessUpdateResponse> {
-        let req = self
-            .client
-            .put(&format!(
-                "{}/api/v1/entity/projects/{}/_update_last_accessed",
-                self.sg_server, project_id
-            ))
-            .bearer_auth(token)
-            .header("Accept", "application/json")
-            .json(&json!({ "user_id": user_id }));
-
-        handle_response(req.send().await?).await
-    }
-
-    /// Upload attachments and thumbnails for a given entity.
-    ///
-    /// The `Shotgun::upload()` method will prepare and return a
-    /// `UploadReqBuilder` which can be used to configure some optional aspects
-    /// of the process such as linking the upload to tags, or
-    /// enabling/configuring multipart support.
-    ///
-    /// The content of the file to upload can be any type that implements the
-    /// [`Read`] trait. This includes [`File`] but also `&[u8]` (aka *a slice
-    /// of bytes*).
-    ///
-    /// > In the Python API, uploading thumbnails is treated as a distinct
-    /// > operation from attachments but in the REST API these are treated as the
-    /// > same thing.
-    /// >
-    /// > Thumbnail uploads in this case are handled by specifying `image` as the
-    /// > optional `field` parameter.
-    ///
-    /// # Examples
-    ///
-    /// Uploading an attachment to a note by setting `field` to None:
-    ///
-    /// ```no_run
-    /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// use shotgun_rs::{Shotgun, TokenResponse};
-    /// use std::path::PathBuf;
-    /// use std::fs::File;
-    ///
-    /// let filename = "paranorman-poster.jpg";
-    /// let mut file_path = PathBuf::from("/path/to/posters");
-    /// file_path.push(filename);
-    /// let file = File::open(&file_path)?;
-    ///
-    /// let sg = Shotgun::new(
-    ///     String::from("https://shotgun.example.com"),
-    ///     Some("my-shotgun-api-user"),
-    ///     Some("**********")
-    /// )?;
-    ///
-    /// let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
-    ///
-    /// sg.upload(
-    ///     &access_token,
-    ///     "Note",
-    ///     123456,
-    ///     // A `None` for the `field` param means this is a attachment upload.
-    ///     None,
-    ///     &filename,
-    ///     file
-    /// )
-    /// // Non-thumbnail uploads can include some short descriptive text to
-    /// // use as the display name (shown in attachment lists, etc).
-    /// .display_name(Some(String::from(
-    ///     "ParaNorman Poster Art",
-    /// )))
-    /// .send()
-    /// .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Uploading a thumbnail by specifying the field to upload to as `image`:
-    ///
-    /// ```no_run
-    /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// # use shotgun_rs::{Shotgun, TokenResponse};
-    /// # use std::path::PathBuf;
-    /// # use std::fs::File;
-    /// # let filename = "paranorman-poster.jpg";
-    /// # let mut file_path = PathBuf::from("/path/to/posters");
-    /// # file_path.push(filename);
-    /// # let file = File::open(&file_path)?;
-    /// # let sg = Shotgun::new(
-    /// #     String::from("https://shotgun.example.com"),
-    /// #     Some("my-shotgun-api-user"),
-    /// #     Some("**********")
-    /// # )?;
-    /// # let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
-    /// sg.upload(
-    ///     &access_token,
-    ///     "Asset",
-    ///     123456,
-    ///     // Setting `field` to "image" means this is a thumbnail upload.
-    ///     Some("image"),
-    ///     &filename,
-    ///     file,
-    /// ).send()
-    /// .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Uploading in-memory data instead of using a file on disk:
-    ///
-    /// ```no_run
-    /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// # use shotgun_rs::{Shotgun, TokenResponse};
-    /// # let sg = Shotgun::new(
-    /// #     String::from("https://shotgun.example.com"),
-    /// #     Some("my-shotgun-api-user"),
-    /// #     Some("**********")
-    /// # )?;
-    /// # let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
-    ///
-    /// let movie_script = "
-    /// 1. EXT. Mansion On The Hill
-    ///
-    ///             NARRATOR (V.O.)
-    ///     It was a dark and stormy night.
-    /// ";
-    ///
-    /// sg.upload(
-    ///     &access_token,
-    ///     "Asset",
-    ///     123456,
-    ///     None,
-    ///     "screenplay.txt",
-    ///     movie_script.as_bytes(),
-    /// )
-    /// .display_name(Some(String::from(
-    ///     "Spec script for a great new movie.",
-    /// )))
-    /// .send()
-    /// .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Caveats
-    ///
-    /// ## Multipart Uploads
-    ///
-    /// Multipart uploads are *only available* if your Shotgun instance is
-    /// configured to use *AWS S3 storage*. Setting the `multipart` parameter to
-    /// `true` when this not the case will result in a `400` error from Shotgun.
-    ///
-    /// For the times where *S3 storage is in use* you are **required** to set
-    /// `multipart` to `true` for files **500Mb or larger**. For files that are
-    /// smaller, you may use multipart *at your discretion*.
-    ///
-    /// There is currently a bug (**`SG-20292`**) where Shotgun will respond
-    /// with a `404` when you attempt to initiate a multipart upload without
-    /// also specifying a field name. While it *is legal* to use multipart for
-    /// record-level (as opposed to field-level) uploads, it doesn't work today.
-    ///
-    /// For now, the workaround is to always *specify an appropriate field name*
-    /// if you want to use multipart.
-    ///
-    /// ## Display Name and Tags
-    ///
-    /// The `display_name` and `tags` parameters are *ignored for thumbnail
-    /// uploads*, but are allowed for attachments.
-    ///
-    /// Also note that `tags` can cause your upload to fail if you supply an
-    /// invalid tag id, resulting in a `400` error from Shotgun.
-    ///
-    /// # See Also:
-    ///
-    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.upload>
-    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.upload_thumbnail>
-    /// - <https://developer.shotgunsoftware.com/rest-api/#shotgun-rest-api-Uploading-and-Downloading-Files>
-    ///
-    /// [`File`]: https://doc.rust-lang.org/std/fs/struct.File.html
-    /// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
-    pub fn upload<'a, R>(
-        &'a self,
-        token: &'a str,
-        entity: &'a str,
-        id: i32,
-        field: Option<&'a str>,
-        filename: &'a str,
-        file_content: R,
-    ) -> upload::UploadReqBuilder<'a, R>
-        where
-            R: Read,
-    {
-        UploadReqBuilder::new(self, token, entity, id, field, filename, file_content)
     }
 }
 
@@ -1545,15 +518,10 @@ mod mock_tests {
             .await;
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let resp: TokenResponse = sg
+        let _sess = sg
             .authenticate_user("nbabcock", "forgot my passwd")
             .await
             .unwrap();
-
-        assert_eq!("$$ACCESS_TOKEN$$", resp.access_token);
-        assert_eq!("$$REFRESH_TOKEN$$", resp.refresh_token);
-        assert_eq!("Bearer", resp.token_type);
-        assert_eq!(600, resp.expires_in);
     }
 
     #[tokio::test]
@@ -1582,10 +550,10 @@ mod mock_tests {
             .await;
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let resp: Result<TokenResponse> = sg.authenticate_user("nbabcock", "iCdEAD!ppl").await;
+        let maybe_sess = sg.authenticate_user("nbabcock", "iCdEAD!ppl").await;
 
         // verify the error response was decoded as expected.
-        match resp {
+        match maybe_sess {
             Err(ShotgunError::ServerError(errors)) => {
                 let details = &errors[0];
                 assert_eq!("xxxxx", details.id.as_ref().unwrap());

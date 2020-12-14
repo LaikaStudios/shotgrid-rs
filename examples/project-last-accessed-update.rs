@@ -22,7 +22,6 @@
 //! $ cargo run --example project-last-accessed-update 123(project id) 1048 (user id)
 //! ```
 
-use serde_json::Value;
 use shotgun_rs::types::ProjectAccessUpdateResponse;
 use shotgun_rs::Shotgun;
 use std::env;
@@ -48,13 +47,10 @@ async fn main() -> shotgun_rs::Result<()> {
     );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG client");
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let sess = sg.authenticate_script().await?;
 
-    let resp: ProjectAccessUpdateResponse = sg
-        .project_last_accessed_update(&token, project_id.unwrap(), user_id.unwrap())
+    let resp: ProjectAccessUpdateResponse = sess
+        .project_last_accessed_update(project_id.unwrap(), user_id.unwrap())
         .await?;
     println!("Data: {:?}", resp.data);
     println!("Links: {:?}", resp.links);

@@ -22,7 +22,6 @@
 //! $ cargo run --example schema-field-revive task sg_hello
 //! ```
 
-use serde_json::Value;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -43,13 +42,9 @@ async fn main() -> shotgun_rs::Result<()> {
     );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    sg.schema_field_revive(&token, &entity_type.unwrap(), &field_name.unwrap())
+    let session = sg.authenticate_script().await?;
+    session
+        .schema_field_revive(&entity_type.unwrap(), &field_name.unwrap())
         .await?;
     // Returns 204, nothing to print out
     Ok(())

@@ -40,19 +40,14 @@ async fn main() -> shotgun_rs::Result<()> {
     println!("Attempting to read note: {:?}", note_id);
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
+    let sess = sg.authenticate_script().await?;
     let mut fields: HashMap<String, String> = HashMap::new();
 
     fields.insert("entity_fields[Asset]".to_string(), "user".to_string());
     fields.insert("entity_fields[Note]".to_string(), "user".to_string());
 
-    let resp: Value = sg
-        .thread_contents_read(&token, note_id.unwrap(), Some(fields))
+    let resp: Value = sess
+        .thread_contents_read(note_id.unwrap(), Some(fields))
         .await?;
 
     for entry in resp["data"].as_array().expect("response decode") {

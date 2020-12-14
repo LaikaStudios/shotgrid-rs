@@ -22,7 +22,7 @@
 //! $ cargo run --example schema-field-read [project_id] 'task' 'sg_status_list'
 //! ```
 
-use shotgun_rs::{Shotgun, TokenResponse};
+use shotgun_rs::Shotgun;
 use std::env;
 
 #[tokio::main]
@@ -43,15 +43,10 @@ async fn main() -> shotgun_rs::Result<()> {
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+    let sess = sg.authenticate_script().await?;
 
-    let resp = sg
-        .schema_field_read(
-            &access_token,
-            project_id,
-            &entity.unwrap(),
-            &field_name.unwrap(),
-        )
+    let resp = sess
+        .schema_field_read(project_id, &entity.unwrap(), &field_name.unwrap())
         .await?;
     println!("Data: {:?}", resp.data);
     println!("Links: {:?}", resp.links);

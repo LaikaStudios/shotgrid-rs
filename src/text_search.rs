@@ -1,5 +1,5 @@
 use crate::types::PaginationParameter;
-use crate::{get_filter_mime, handle_response, Shotgun, ShotgunError};
+use crate::{get_filter_mime, handle_response, Session, ShotgunError};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -27,8 +27,7 @@ fn get_entity_filters_mime(entity_filters: &EntityFilters) -> crate::Result<&'st
 }
 
 pub struct TextSearchBuilder<'a> {
-    sg: &'a Shotgun,
-    token: &'a str,
+    session: &'a Session<'a>,
     /// A map of entity type -> filters
     entity_filters: EntityFilters<'a>,
     text: Option<&'a str>,
@@ -38,14 +37,12 @@ pub struct TextSearchBuilder<'a> {
 
 impl<'a> TextSearchBuilder<'a> {
     pub fn new(
-        sg: &'a Shotgun,
-        token: &'a str,
+        session: &'a Session<'a>,
         text: Option<&'a str>,
         entity_filters: EntityFilters<'a>,
     ) -> TextSearchBuilder<'a> {
         TextSearchBuilder {
-            sg,
-            token,
+            session,
             entity_filters,
             text,
             sort: None,
@@ -103,13 +100,13 @@ impl<'a> TextSearchBuilder<'a> {
 
         body.insert("entity_filters", json!(self.entity_filters));
 
-        let req = self
-            .sg
+        let (sg, token) = self.session.get_sg().await?;
+        let req = sg
             .client
-            .post(&format!("{}/api/v1/entity/_text_search", self.sg.sg_server))
+            .post(&format!("{}/api/v1/entity/_text_search", sg.sg_server))
             .header("Content-Type", content_type)
             .header("Accept", "application/json")
-            .bearer_auth(self.token)
+            .bearer_auth(&token)
             .body(json!(body).to_string());
         handle_response(req.send().await?).await
     }

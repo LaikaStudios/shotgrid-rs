@@ -22,7 +22,6 @@
 //! $ cargo run --example upload note 12345 tester path/to/file.ext [optional display name]
 //! ```
 
-use serde_json::Value;
 use shotgun_rs::Shotgun;
 use std::env;
 use std::path::PathBuf;
@@ -44,12 +43,7 @@ async fn main() -> shotgun_rs::Result<()> {
     let display_name = env::args().nth(4);
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
+    let session = sg.authenticate_script().await?;
     let fh = std::fs::OpenOptions::new()
         .read(true)
         .open(&file_path)
@@ -57,17 +51,11 @@ async fn main() -> shotgun_rs::Result<()> {
 
     let filename = file_path.file_name().as_ref().unwrap().to_string_lossy();
 
-    sg.upload(
-        &token,
-        &entity,
-        entity_id,
-        Some("attachments"),
-        &filename,
-        fh,
-    )
-    .display_name(display_name)
-    .send()
-    .await?;
+    session
+        .upload(&entity, entity_id, Some("attachments"), &filename, fh)
+        .display_name(display_name)
+        .send()
+        .await?;
 
     Ok(())
 }

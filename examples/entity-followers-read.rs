@@ -42,14 +42,9 @@ async fn main() -> shotgun_rs::Result<()> {
     );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    let resp: Value = sg
-        .entity_followers_read(&token, &entity.unwrap(), entity_id.unwrap())
+    let sess = sg.authenticate_script().await?;
+    let resp: Value = sess
+        .entity_followers_read(&entity.unwrap(), entity_id.unwrap())
         .await?;
     println!("{}", resp);
     for entry in resp["data"].as_array().expect("response decode") {

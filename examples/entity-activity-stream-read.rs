@@ -22,8 +22,6 @@
 //! $ cargo run --example entity-activity-stream-read task 123456[task-id]
 //! ```
 
-use serde_json::Value;
-use shotgun_rs::types::EntityActivityStreamResponse;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -46,13 +44,10 @@ async fn main() -> shotgun_rs::Result<()> {
     );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let sess = sg.authenticate_script().await?;
 
-    let resp: EntityActivityStreamResponse = sg
-        .entity_activity_stream_read(&token, &entity_type.unwrap(), entity_id.unwrap())
+    let resp = sess
+        .entity_activity_stream_read(&entity_type.unwrap(), entity_id.unwrap())
         .await?;
 
     println!("Data: {:?}", resp.data);

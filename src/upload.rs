@@ -30,7 +30,7 @@
 //!
 //! <https://developer.shotgunsoftware.com/rest-api/#shotgun-rest-api-Uploading-and-Downloading-Files>
 use crate::types::{Entity, NextUploadPartResponse, UploadInfoResponse, UploadResponse};
-use crate::{handle_response, Result, Shotgun, ShotgunError};
+use crate::{handle_response, Result, Session, Shotgun, ShotgunError};
 use mime_guess::Mime;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
@@ -50,8 +50,7 @@ pub const MIN_MULTIPART_CHUNK_SIZE: usize = 5 * 1024 * 1024;
 // XXX: we could simplify this type by accepting the file_content as a param
 // to `send()` instead of holding it in the builder. Food for thought.
 pub struct UploadReqBuilder<'a, R: Read> {
-    sg: &'a Shotgun,
-    token: &'a str,
+    session: &'a Session<'a>,
     entity_type: &'a str,
     entity_id: i32,
     /// This optional field name must be a "file type" field when specified.
@@ -61,7 +60,7 @@ pub struct UploadReqBuilder<'a, R: Read> {
     /// Effectively, this tells Shotgun what content-type header to send
     /// with it.
     filename: &'a str,
-    mimetype: Option<Mime>,
+    mimetype: Option<Mime>, // FIXME: give a way for caller to set this
     /// The bytes of the file to upload.
     ///
     /// Can be any type that implements `Read`.
@@ -82,8 +81,7 @@ where
     R: Read,
 {
     pub(crate) fn new(
-        sg: &'a Shotgun,
-        token: &'a str,
+        session: &'a Session<'a>,
         entity_type: &'a str,
         entity_id: i32,
         field: Option<&'a str>,
@@ -91,8 +89,7 @@ where
         file_content: R,
     ) -> Self {
         Self {
-            sg,
-            token,
+            session,
             entity_type,
             entity_id,
             field,
@@ -403,8 +400,7 @@ where
 
     pub async fn send(self) -> Result<()> {
         let Self {
-            sg,
-            token,
+            session,
             entity_type,
             entity_id,
             field,
@@ -428,6 +424,8 @@ where
             }
         }
 
+        let (sg, token) = session.get_sg().await?;
+
         // This multi-step flow performs the following requests in order:
         //
         // - initiate the upload (gets you the a url to send bytes to, and misc data about the upload).
@@ -441,19 +439,20 @@ where
 
         let init_resp: UploadInfoResponse = match field {
             None => {
-                sg.entity_upload_url_read(&token, entity_type, entity_id, filename, Some(multipart))
+                session
+                    .entity_upload_url_read(entity_type, entity_id, filename, Some(multipart))
                     .await
             }
             Some(field) => {
-                sg.entity_field_upload_url_read(
-                    &token,
-                    entity_type,
-                    entity_id,
-                    filename,
-                    field,
-                    Some(multipart),
-                )
-                .await
+                session
+                    .entity_field_upload_url_read(
+                        entity_type,
+                        entity_id,
+                        filename,
+                        field,
+                        Some(multipart),
+                    )
+                    .await
             }
         }?;
 
@@ -519,7 +518,7 @@ where
                     .put(upload_url)
                     .body(body)
                     .header("Accept", "application/json")
-                    .bearer_auth(token);
+                    .bearer_auth(&token);
 
                 if let Some(ref mimetype) = mimetype {
                     upload_req = upload_req.header("Content-Type", mimetype.as_ref());
@@ -574,7 +573,7 @@ where
 
                 let maybe_etags: Result<Vec<String>> = Self::do_multipart_upload(
                     &sg,
-                    token,
+                    &token,
                     file_content,
                     mimetype,
                     upload_url.clone(),
@@ -592,8 +591,13 @@ where
 
                     Err(err) => {
                         log::error!("{}", err);
-                        Self::abort_multipart_upload(&sg, token, &completion_url, &completion_body)
-                            .await;
+                        Self::abort_multipart_upload(
+                            &sg,
+                            &token,
+                            &completion_url,
+                            &completion_body,
+                        )
+                        .await;
                         return Err(err); // Bail with the original cause
                     }
                 }
@@ -634,14 +638,14 @@ where
             .client
             .post(&completion_url)
             .json(&completion_body)
-            .bearer_auth(token)
+            .bearer_auth(&token)
             .send()
             .await
         {
             // If the upload was multipart and the completion request fails, we
             // abort the whole thing.
             Ok(resp) if multipart && !resp.status().is_success() => {
-                Self::abort_multipart_upload(&sg, token, &completion_url, &completion_body).await;
+                Self::abort_multipart_upload(&sg, &token, &completion_url, &completion_body).await;
 
                 return Err(ShotgunError::UploadError(format!(
                     "Got a bad status ({}) from completion endpoint. Upload aborted.",
@@ -651,7 +655,7 @@ where
             // If there was a connection failure (or some other interruption to
             // prevent the completion request from happening, try to abort.
             Err(err) if multipart => {
-                Self::abort_multipart_upload(&sg, token, &completion_url, &completion_body).await;
+                Self::abort_multipart_upload(&sg, &token, &completion_url, &completion_body).await;
 
                 return Err(ShotgunError::UploadError(format!(
                     "Failed to complete multipart upload `{}`. Upload aborted.",
@@ -733,7 +737,7 @@ impl FromStr for UploadType {
 #[cfg(test)]
 mod mock_tests {
     use super::*;
-    use crate::{Shotgun, TokenResponse};
+    use crate::Shotgun;
     use std::io::Cursor;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -807,27 +811,27 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let session = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
 
         let file_content: Vec<u8> = vec![];
 
-        sg.upload(
-            &access_token,
-            "Note",
-            123456,
-            None,
-            "paranorman-poster.jpg",
-            Cursor::new(file_content),
-        )
-        .display_name(Some(String::from(
-            "Poster art from the release of ParaNorman.",
-        )))
-        .send()
-        .await
-        .unwrap();
+        session
+            .upload(
+                "Note",
+                123456,
+                None,
+                "paranorman-poster.jpg",
+                Cursor::new(file_content),
+            )
+            .display_name(Some(String::from(
+                "Poster art from the release of ParaNorman.",
+            )))
+            .send()
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -889,27 +893,27 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let session = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
 
         let file_content: Vec<u8> = vec![];
 
-        sg.upload(
-            &access_token,
-            "Note",
-            123456,
-            None,
-            "paranorman-poster.jpg",
-            Cursor::new(file_content),
-        )
-        .display_name(Some(String::from(
-            "Poster art from the release of ParaNorman.",
-        )))
-        .send()
-        .await
-        .unwrap();
+        session
+            .upload(
+                "Note",
+                123456,
+                None,
+                "paranorman-poster.jpg",
+                Cursor::new(file_content),
+            )
+            .display_name(Some(String::from(
+                "Poster art from the release of ParaNorman.",
+            )))
+            .send()
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -999,7 +1003,7 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
@@ -1007,9 +1011,8 @@ mod mock_tests {
         let file_content: Vec<u8> = vec![];
         let tags = vec![crate::types::Entity::new("Tag", 666)];
 
-        match sg
+        match sess
             .upload(
-                &access_token,
                 "Note",
                 123456,
                 None,
@@ -1074,16 +1077,15 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
 
         let file_content: Vec<u8> = vec![];
 
-        match sg
+        match sess
             .upload(
-                &access_token,
                 "Note",
                 123456,
                 None,
@@ -1203,30 +1205,30 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let session = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
 
         let file_content: Vec<u8> = vec![];
 
-        sg.upload(
-            &access_token,
-            "Note",
-            123456,
-            // It is not currently possible to do a multipart upload without
-            // specifying a field name.
-            // This should be possible once SG-20292 has been closed in some
-            // future release of Shotgun.
-            // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
-            Some("attachments"),
-            "paranorman-poster.jpg",
-            Cursor::new(file_content),
-        )
-        .multipart(true)
-        .send()
-        .await
-        .unwrap()
+        session
+            .upload(
+                "Note",
+                123456,
+                // It is not currently possible to do a multipart upload without
+                // specifying a field name.
+                // This should be possible once SG-20292 has been closed in some
+                // future release of Shotgun.
+                // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
+                Some("attachments"),
+                "paranorman-poster.jpg",
+                Cursor::new(file_content),
+            )
+            .multipart(true)
+            .send()
+            .await
+            .unwrap()
     }
 
     #[tokio::test]
@@ -1302,7 +1304,7 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
@@ -1310,9 +1312,8 @@ mod mock_tests {
         // We need a block of bytes large enough to span 2 chunks
         let file_content: Vec<u8> = vec![0; (5 * 1024 * 1024) + 100 * 1024];
 
-        match sg
+        match sess
             .upload(
-                &access_token,
                 "Note",
                 123456,
                 // It is not currently possible to do a multipart upload without
@@ -1412,7 +1413,7 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
@@ -1420,9 +1421,8 @@ mod mock_tests {
         // We need a block of bytes large enough to span 2 chunks
         let file_content: Vec<u8> = vec![0; (5 * 1024 * 1024) + 100 * 1024];
 
-        match sg
+        match sess
             .upload(
-                &access_token,
                 "Note",
                 123456,
                 // It is not currently possible to do a multipart upload without
@@ -1537,16 +1537,15 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
 
         let file_content: Vec<u8> = vec![];
 
-        match sg
+        match sess
             .upload(
-                &access_token,
                 "Note",
                 123456,
                 // It is not currently possible to do a multipart upload without
@@ -1667,16 +1666,15 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
 
         let file_content: Vec<u8> = vec![];
 
-        match sg
+        match sess
             .upload(
-                &access_token,
                 "Note",
                 123456,
                 // It is not currently possible to do a multipart upload without
@@ -1721,16 +1719,15 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
 
         let file_content: Vec<u8> = vec![];
 
-        match sg
+        match sess
             .upload(
-                &access_token,
                 "Note",
                 123456,
                 Some("attachments"),
@@ -1771,16 +1768,15 @@ mod mock_tests {
 
         let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
 
-        let TokenResponse { access_token, .. }: TokenResponse = sg
+        let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
 
         let file_content: Vec<u8> = vec![];
 
-        match sg
+        match sess
             .upload(
-                &access_token,
                 "Note",
                 123456,
                 Some("attachments"),

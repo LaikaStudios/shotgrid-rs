@@ -41,15 +41,9 @@ async fn main() -> shotgun_rs::Result<()> {
 
     println!("Attempting to revive {:?} {:?}", entity, entity_id);
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let session = sg.authenticate_script().await?;
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    let resp: Value = sg
-        .revive(&token, &entity.unwrap(), entity_id.unwrap())
-        .await?;
+    let resp: Value = session.revive(&entity.unwrap(), entity_id.unwrap()).await?;
 
     for key in resp.as_object().expect("response decode").keys() {
         println!("{}: {}", key, resp[key]);

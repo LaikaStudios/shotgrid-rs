@@ -3,17 +3,16 @@
 
 use futures::future;
 use serde_json::{json, Value};
-use shotgun_rs::Shotgun;
+use shotgun_rs::{Session, Shotgun};
 
 pub fn get_human_user_login() -> String {
     dotenv::dotenv().ok();
     std::env::var("TEST_SG_HUMAN_USER_LOGIN").expect("TEST_SG_HUMAN_USER_LOGIN")
 }
 
-pub async fn get_human_user_id(sg: &Shotgun, token: &str) -> i32 {
-    let resp: Value = sg
+pub async fn get_human_user_id(sess: &Session<'_>) -> i32 {
+    let resp: Value = sess
         .search(
-            token,
             "HumanUser",
             "id",
             &json!([[
@@ -47,10 +46,9 @@ pub fn get_test_client() -> Shotgun {
     Shotgun::new(sg_server, Some(&sg_script_name), Some(&sg_script_key)).expect("client init")
 }
 
-pub async fn get_api_user_id(sg: &Shotgun, token: &str) -> i32 {
-    let resp: Value = sg
+pub async fn get_api_user_id(sess: &Session<'_>) -> i32 {
+    let resp: Value = sess
         .search(
-            token,
             "ApiUser",
             "id",
             &json!([[
@@ -70,8 +68,8 @@ pub async fn get_api_user_id(sg: &Shotgun, token: &str) -> i32 {
 }
 
 /// Attempt to delete entities - print to stderr when there are problems.
-pub async fn cleanup_entities(sg: &Shotgun, token: &str, keys: &[(&str, i32)]) {
-    let errors = future::join_all(keys.iter().map(|(typ, id)| sg.destroy(token, typ, *id)))
+pub async fn cleanup_entities(session: &Session<'_>, keys: &[(&str, i32)]) {
+    let errors = future::join_all(keys.iter().map(|(typ, id)| session.destroy(typ, *id)))
         .await
         .into_iter()
         .filter(|r| r.is_err());

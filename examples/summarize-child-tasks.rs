@@ -22,7 +22,7 @@
 
 use serde_json::json;
 use shotgun_rs::types::{GroupingType, SummaryFieldType};
-use shotgun_rs::{Shotgun, TokenResponse};
+use shotgun_rs::Shotgun;
 use std::env;
 
 #[tokio::main]
@@ -43,11 +43,10 @@ async fn main() -> shotgun_rs::Result<()> {
     }
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+    let sess = sg.authenticate_script().await?;
 
-    let resp = sg
+    let resp = sess
         .summarize(
-            &access_token,
             "Task",
             Some(json!([["sg_parent_task.Task.id", "in", &parent_tasks]])),
             vec![("id", SummaryFieldType::Count).into()],

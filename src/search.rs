@@ -1,12 +1,11 @@
 use crate::types::{OptionsParameter, PaginationParameter, ReturnOnly};
-use crate::Shotgun;
+use crate::Session;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::borrow::Cow;
 
 pub struct SearchBuilder<'a> {
-    sg: &'a Shotgun,
-    token: &'a str,
+    session: &'a Session<'a>,
     entity: &'a str,
     fields: &'a str,
     filters: &'a Value,
@@ -17,15 +16,13 @@ pub struct SearchBuilder<'a> {
 
 impl<'a> SearchBuilder<'a> {
     pub fn new(
-        sg: &'a Shotgun,
-        token: &'a str,
+        session: &'a Session<'a>,
         entity: &'a str,
         fields: &'a str,
         filters: &'a Value,
     ) -> crate::Result<SearchBuilder<'a>> {
         Ok(SearchBuilder {
-            sg,
-            token,
+            session,
             entity,
             fields,
             filters,
@@ -132,17 +129,16 @@ impl<'a> SearchBuilder<'a> {
                 ));
             }
         }
-
-        let req = self
-            .sg
+        let (sg, token) = self.session.get_sg().await?;
+        let req = sg
             .client
             .post(&format!(
                 "{}/api/v1/entity/{}/_search",
-                self.sg.sg_server, self.entity
+                sg.sg_server, self.entity
             ))
             .query(&query)
             .header("Accept", "application/json")
-            .bearer_auth(self.token)
+            .bearer_auth(&token)
             .header("Content-Type", content_type)
             // XXX: the content type is being set to shotgun's custom mime types
             //   to indicate the shape of the filter payload. Do not be tempted to use

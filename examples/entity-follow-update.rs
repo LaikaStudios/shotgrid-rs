@@ -23,7 +23,6 @@
 //! $ cargo run --example entity-follow-update 1023 Task 123456
 //! ```
 
-use serde_json::Value;
 use shotgun_rs::types::EntityIdentifier;
 use shotgun_rs::Shotgun;
 use std::env;
@@ -47,17 +46,15 @@ async fn main() -> shotgun_rs::Result<()> {
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let session = sg.authenticate_script().await?;
 
     let entity_identifier = EntityIdentifier {
         record_id: entity_id,
         entity: entity_type,
     };
 
-    sg.entity_follow_update(&token, user_id.unwrap(), vec![entity_identifier])
+    session
+        .entity_follow_update(user_id.unwrap(), vec![entity_identifier])
         .await?;
 
     // Returns 204, nothing to print out

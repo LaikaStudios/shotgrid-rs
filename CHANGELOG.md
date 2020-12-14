@@ -8,6 +8,59 @@
 - `Shotgun::schema_field_update()` no longer accepts an `UpdateFieldRequest`.
   Instead it takes separate `properties` and `project_id` parameters.
 
+#### Sessions
+
+Earlier versions of the API had *all the methods* for talking to Shotgun attached
+to the `Shotgun` struct. Methods requiring authentication required the caller to
+supply a token (provided by an earlier call to one of the *authenticate_* methods).
+
+By encapsulating some of the authentication handling in a new `Session` type,
+this gives us a way to:
+
+- Ensure via the type system that code that goes through an initial authentication
+  step can access methods requiring a token.
+- Automatically refresh the access token (based on the projected expiry TTL).
+- Remove `token` from the public API signatures for making requests (`Session`
+  will supply the `token` when needed.)
+
+In v0.8 and earlier:
+
+```rust
+use shotgun_rs::{Shotgun, TokenResponse};
+
+let server = "https://my-shotgun.example.com";
+let script_name = "my-api-admin";
+let secret = "********";
+
+let sg = Shotgun::new(server.to_string(), Some(script_name), Some(secret))?;
+let TokenResponse { access_token: admin_token, .. } = sg.authenticate_script()?;
+let _ = sg.create(&admin_token, "Task", /* ... */)?;
+
+// Using "sudo as" to work on Norman's behalf.
+let TokenResponse { access_token: norman_token, .. } =
+    sg.authenticate_script_as_user("nbabcock");
+let _ = sg.search(&norman_token, "Task", /* ...*/)?;
+```
+
+As of v0.9:
+
+```rust
+use shotgun_rs::Shotgun;
+
+let server = "https://my-shotgun.example.com";
+let script_name = "my-api-admin";
+let secret = "********";
+
+let sg = Shotgun::new(server.to_string(), Some(script_name), Some(secret))?;
+
+let admin_session = sg.authenticate_script()?;
+let _ = admin_session.create("Task", /* ... */)?;
+
+// Using "sudo as" to work on Norman's behalf.
+let norman_session = sg.authenticate_script_as_user("nbabcock")?;
+let _ = norman_session.search("Task", /* ...*/)?;
+```
+
 #### Builders
 
 A number of methods have been updated to use the

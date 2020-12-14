@@ -26,7 +26,7 @@
 //! $ cargo run --example schema-entity-read [project_id] 'custom_non_project_entity_01'
 //! ```
 
-use shotgun_rs::{Shotgun, TokenResponse};
+use shotgun_rs::Shotgun;
 use std::env;
 
 #[tokio::main]
@@ -43,9 +43,10 @@ async fn main() -> shotgun_rs::Result<()> {
     println!("Attempting to read {:?}", entity);
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
-    let resp = sg
-        .schema_entity_read(&access_token, project_id, &entity.unwrap())
+    let sess = sg.authenticate_script().await?;
+
+    let resp = sess
+        .schema_entity_read(project_id, &entity.unwrap())
         .await?;
 
     println!("{:?}", resp);

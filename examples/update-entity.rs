@@ -44,19 +44,14 @@ async fn main() -> shotgun_rs::Result<()> {
     let return_fields: Option<String> = env::args().nth(5);
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let sess = sg.authenticate_script().await?;
 
     let data: Value = json!({
         field_name.unwrap(): value.unwrap()
     });
 
-    let resp: Value = sg
+    let resp: Value = sess
         .update(
-            &token,
             &entity.unwrap(),
             entity_id.unwrap(),
             data,

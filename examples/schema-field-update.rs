@@ -22,7 +22,7 @@
 //! $ cargo run --example schema-field-update task sg_hello name hello_world
 //! ```
 
-use shotgun_rs::{Shotgun, TokenResponse};
+use shotgun_rs::Shotgun;
 use std::env;
 
 #[tokio::main]
@@ -41,12 +41,9 @@ async fn main() -> shotgun_rs::Result<()> {
     println!("Attempting to update {} on {}", field_name, entity_type);
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
-
-    let resp = sg
+    let sess = sg.authenticate_script().await?;
+    let resp = sess
         .schema_field_update(
-            &access_token,
             &entity_type,
             &field_name,
             vec![(property_name, value)],

@@ -1,10 +1,9 @@
 use crate::types::{OptionsParameter, ReturnOnly};
-use crate::{handle_response, Result, Shotgun};
+use crate::{handle_response, Result, Session};
 use serde::de::DeserializeOwned;
 
 pub struct EntityRelationshipReadReqBuilder<'a> {
-    sg: &'a Shotgun,
-    token: &'a str,
+    session: &'a Session<'a>,
     entity: &'a str,
     entity_id: i32,
     related_field: &'a str,
@@ -13,15 +12,13 @@ pub struct EntityRelationshipReadReqBuilder<'a> {
 
 impl<'a> EntityRelationshipReadReqBuilder<'a> {
     pub fn new(
-        sg: &'a Shotgun,
-        token: &'a str,
+        session: &'a Session<'a>,
         entity: &'a str,
         entity_id: i32,
         related_field: &'a str,
     ) -> Self {
         Self {
-            sg,
-            token,
+            session,
             entity,
             entity_id,
             related_field,
@@ -43,14 +40,14 @@ impl<'a> EntityRelationshipReadReqBuilder<'a> {
     where
         D: DeserializeOwned + 'static,
     {
-        let mut req = self
-            .sg
+        let (sg, token) = self.session.get_sg().await?;
+        let mut req = sg
             .client
             .get(&format!(
                 "{}/api/v1/entity/{}/{}/relationships/{}",
-                self.sg.sg_server, self.entity, self.entity_id, self.related_field
+                sg.sg_server, self.entity, self.entity_id, self.related_field
             ))
-            .bearer_auth(self.token)
+            .bearer_auth(&token)
             .header("Accept", "application/json");
         if let Some(val) = self.options.include_archived_projects {
             req = req.query(&[("options[include_archived_projects]", val)]);

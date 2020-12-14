@@ -36,14 +36,10 @@ async fn main() -> shotgun_rs::Result<()> {
     let script_key = env::var("SG_SCRIPT_KEY").expect("SG_SCRIPT_KEY is required var.");
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let sess = sg.authenticate_script().await?;
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    let resp: Value = sg
-        .search(&token, "Project", "id,code,name", &json!([]))?
+    let resp: Value = sess
+        .search("Project", "id,code,name", &json!([]))?
         .size(Some(3))
         .number(Some(2))
         .execute()

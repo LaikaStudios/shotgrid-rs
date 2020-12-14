@@ -37,13 +37,9 @@ async fn main() -> shotgun_rs::Result<()> {
     let project_id: Option<i32> = env::args().nth(1).map(|s| s.parse().expect("proj id"));
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let session = sg.authenticate_script().await?;
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    let resp: Value = sg.schema_read(&token, project_id).await?;
+    let resp: Value = session.schema_read(project_id).await?;
     for key in resp["data"].as_object().expect("response decode").keys() {
         println!("{}", key);
     }

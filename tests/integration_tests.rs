@@ -21,72 +21,52 @@ use shotgun_rs::types::{
     Entity, GroupingDirection, GroupingType, HierarchyEntityFields, HierarchyExpandRequest,
     HierarchySearchCriteria, HierarchySearchRequest, SummaryFieldType,
 };
-use shotgun_rs::TokenResponse;
 
 mod helpers;
 
 #[tokio::test]
 async fn e2e_test_info_read() {
     let sg = helpers::get_test_client();
-
     sg.info::<Value>().await.unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_preferences_read() {
     let sg = helpers::get_test_client();
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-    sg.preferences_read::<Value>(&token).await.unwrap();
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
+    session.preferences_read::<Value>().await.unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_list_projects() {
     let sg = helpers::get_test_client();
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    sg.search(
-        &token,
-        "Project",
-        &["id", "code", "name"].join(","),
-        &json!([]),
-    )
-    .unwrap()
-    .size(Some(3))
-    .number(Some(1))
-    .execute::<Value>()
-    .await
-    .unwrap();
+    session
+        .search("Project", &["id", "code", "name"].join(","), &json!([]))
+        .unwrap()
+        .size(Some(3))
+        .number(Some(1))
+        .execute::<Value>()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_schema_entity_read() {
     let sg = helpers::get_test_client();
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    sg.schema_entity_read(&token, None, "Asset").await.unwrap();
+    session.schema_entity_read(None, "Asset").await.unwrap();
 }
 #[tokio::test]
 async fn e2e_test_schema_entity_read_for_project() {
     let sg = helpers::get_test_client();
     let project_id = helpers::get_project_id();
-
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    sg.schema_entity_read(&token, Some(project_id), "Asset")
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
+    session
+        .schema_entity_read(Some(project_id), "Asset")
         .await
         .unwrap();
 }
@@ -94,26 +74,18 @@ async fn e2e_test_schema_entity_read_for_project() {
 #[tokio::test]
 async fn e2e_test_schema_read() {
     let sg = helpers::get_test_client();
-
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    sg.schema_read::<Value>(&token, None).await.unwrap();
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
+    session.schema_read::<Value>(None).await.unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_schema_read_for_project() {
     let sg = helpers::get_test_client();
     let project_id = helpers::get_project_id();
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    sg.schema_read::<Value>(&token, Some(project_id))
+    session
+        .schema_read::<Value>(Some(project_id))
         .await
         .unwrap();
 }
@@ -123,46 +95,42 @@ async fn e2e_test_summarize_project_assets() {
     let sg = helpers::get_test_client();
     let project_id = helpers::get_project_id();
 
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await.expect("ApiUser auth");
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    sg.summarize(
-        &access_token,
-        "Asset",
-        Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
-        vec![("id", SummaryFieldType::Count).into()],
-    )
-    .grouping(Some(vec![(
-        "sg_asset_type",
-        GroupingType::Exact,
-        GroupingDirection::Asc,
-    )
-        .into()]))
-    .execute()
-    .await
-    .unwrap();
+    session
+        .summarize(
+            "Asset",
+            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+            vec![("id", SummaryFieldType::Count).into()],
+        )
+        .grouping(Some(vec![(
+            "sg_asset_type",
+            GroupingType::Exact,
+            GroupingDirection::Asc,
+        )
+            .into()]))
+        .execute()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_summarize_no_filters() {
     let sg = helpers::get_test_client();
 
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await.expect("ApiUser auth");
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    sg.summarize(
-        &access_token,
-        "Asset",
-        None,
-        vec![("id", SummaryFieldType::Count).into()],
-    )
-    .grouping(Some(vec![(
-        "sg_asset_type",
-        GroupingType::Exact,
-        GroupingDirection::Asc,
-    )
-        .into()]))
-    .execute()
-    .await
-    .unwrap();
+    session
+        .summarize("Asset", None, vec![("id", SummaryFieldType::Count).into()])
+        .grouping(Some(vec![(
+            "sg_asset_type",
+            GroupingType::Exact,
+            GroupingDirection::Asc,
+        )
+            .into()]))
+        .execute()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -170,103 +138,91 @@ async fn e2e_test_summarize_empty_summary_fields() {
     let sg = helpers::get_test_client();
     let project_id = helpers::get_project_id();
 
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await.expect("ApiUser auth");
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    sg.summarize(
-        &access_token,
-        "Asset",
-        Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
-        vec![],
-    )
-    .grouping(Some(vec![(
-        "sg_asset_type",
-        GroupingType::Exact,
-        GroupingDirection::Asc,
-    )
-        .into()]))
-    .execute()
-    .await
-    .unwrap();
+    session
+        .summarize(
+            "Asset",
+            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+            vec![],
+        )
+        .grouping(Some(vec![(
+            "sg_asset_type",
+            GroupingType::Exact,
+            GroupingDirection::Asc,
+        )
+            .into()]))
+        .execute()
+        .await
+        .unwrap();
 }
 #[tokio::test]
 async fn e2e_test_summarize_no_groupings() {
     let sg = helpers::get_test_client();
     let project_id = helpers::get_project_id();
 
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await.expect("ApiUser auth");
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    sg.summarize(
-        &access_token,
-        "Asset",
-        Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
-        vec![("id", SummaryFieldType::Count).into()],
-    )
-    .execute()
-    .await
-    .unwrap();
+    session
+        .summarize(
+            "Asset",
+            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+            vec![("id", SummaryFieldType::Count).into()],
+        )
+        .execute()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_read_user_follows() {
     let sg = helpers::get_test_client();
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    let user_id = helpers::get_api_user_id(&sg, &token).await;
+    let user_id = helpers::get_api_user_id(&session).await;
 
-    sg.user_follows_read::<Value>(&token, user_id)
-        .await
-        .unwrap();
+    session.user_follows_read::<Value>(user_id).await.unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_text_search() {
     let login = helpers::get_human_user_login();
     let sg = helpers::get_test_client();
+    let session = sg
+        // Text search only works for human users for some reason.
+        // Using a "sudo as" user to get around the limitation for now.
+        // <https://support.shotgunsoftware.com/hc/en-us/requests/114649>
+        // *(fixed in shotgun v8.16).*
+        .authenticate_script_as_user(&login)
+        .await
+        .expect("Sudo As auth");
 
-    let token = {
-        let resp: Value = sg
-            // Text search only works for human users for some reason.
-            // Using a "sudo as" user to get around the limitation for now.
-            // <https://support.shotgunsoftware.com/hc/en-us/requests/114649>
-            // *(fixed in shotgun v8.16).*
-            .authenticate_script_as_user(&login)
-            .await
-            .expect("ApiUser auth as HumanUser");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    sg.text_search(
-        &token,
-        Some("foobar"),
-        vec![("Asset", json!([]))].into_iter().collect(),
-    )
-    .execute::<Value>()
-    .await
-    .unwrap();
+    session
+        .text_search(
+            Some("foobar"),
+            vec![("Asset", json!([]))].into_iter().collect(),
+        )
+        .execute::<Value>()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_text_search_empty_filters() {
     let login = helpers::get_human_user_login();
     let sg = helpers::get_test_client();
+    let session = sg
+        // Text search only works for human users for some reason.
+        // Using a "sudo as" user to get around the limitation for now.
+        // <https://support.shotgunsoftware.com/hc/en-us/requests/114649>
+        // *(fixed in shotgun v8.16).*
+        .authenticate_script_as_user(&login)
+        .await
+        .expect("Sudo As auth");
 
-    let token = {
-        let resp: Value = sg
-            // Text search only works for human users for some reason.
-            // Using a "sudo as" user to get around the limitation for now.
-            // <https://support.shotgunsoftware.com/hc/en-us/requests/114649>
-            // *(fixed in shotgun v8.16).*
-            .authenticate_script_as_user(&login)
-            .await
-            .expect("ApiUser auth as HumanUser");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    sg.text_search(&token, Some("foobar"), vec![].into_iter().collect())
+    session
+        .text_search(Some("foobar"), vec![].into_iter().collect())
         .execute::<Value>()
         .await
         .unwrap();
@@ -275,18 +231,15 @@ async fn e2e_test_text_search_empty_filters() {
 #[tokio::test]
 async fn e2e_test_read_work_schedule_for_user() {
     let sg = helpers::get_test_client();
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    let user_id = helpers::get_api_user_id(&sg, &token).await;
+    let user_id = helpers::get_api_user_id(&session).await;
     // Great Scott!
     let start_date = "1985-10-26";
     let end_date = "1985-10-27";
 
-    sg.work_days_rules_read::<Value>(&token, &start_date, &end_date, Some(user_id), None)
+    session
+        .work_days_rules_read::<Value>(&start_date, &end_date, Some(user_id), None)
         .await
         .unwrap();
 }
@@ -295,20 +248,16 @@ async fn e2e_test_read_work_schedule_for_user() {
 async fn e2e_test_crud_kitchen_sink() {
     let sg = helpers::get_test_client();
 
-    let token = {
-        let resp: Value = sg
-            .authenticate_script_as_user(&helpers::get_human_user_login())
-            .await
-            .expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let session = sg
+        .authenticate_script_as_user(&helpers::get_human_user_login())
+        .await
+        .expect("Sudo As auth");
 
-    let author_id = helpers::get_human_user_id(&sg, &token).await;
+    let author_id = helpers::get_human_user_id(&session).await;
     let project_id = helpers::get_project_id();
 
-    let note: Value = sg
+    let note: Value = session
         .create(
-            &token,
             "Note",
             json!({
                 "subject": "shotgun-rs test",
@@ -334,9 +283,8 @@ async fn e2e_test_crud_kitchen_sink() {
     // least 1 sec.
     std::thread::sleep(std::time::Duration::from_millis(1_010));
 
-    let updated_note: Value = sg
+    let updated_note: Value = session
         .update(
-            &token,
             "Note",
             note_id,
             json!({"content": "test test test"}),
@@ -361,17 +309,14 @@ async fn e2e_test_crud_kitchen_sink() {
             .unwrap()
     );
 
-    helpers::cleanup_entities(&sg, &token, &[("Note", note_id)]).await;
+    helpers::cleanup_entities(&session, &[("Note", note_id)]).await;
 }
 
 #[tokio::test]
 async fn e2e_test_hierarchy_expand() {
     let sg = helpers::get_test_client();
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await.expect("ApiUser auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let session = sg.authenticate_script().await.expect("ApiUser auth");
 
     let data = HierarchyExpandRequest {
         // Not sure what I can pass as entity fields to change the
@@ -385,20 +330,17 @@ async fn e2e_test_hierarchy_expand() {
         seed_entity_field: None,
     };
 
-    sg.hierarchy_expand(&token, data).await.unwrap();
+    session.hierarchy_expand(data).await.unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_hierarchy_search_by_string() {
     let sg = helpers::get_test_client();
     let login = helpers::get_human_user_login();
-    let token = {
-        let resp: Value = sg
-            .authenticate_script_as_user(&login)
-            .await
-            .expect("Sudo As auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let session = sg
+        .authenticate_script_as_user(&login)
+        .await
+        .expect("Sudo As auth");
 
     let data = HierarchySearchRequest {
         root_path: None,
@@ -406,20 +348,17 @@ async fn e2e_test_hierarchy_search_by_string() {
         seed_entity_field: None,
     };
 
-    sg.hierarchy_search(&token, data).await.unwrap();
+    session.hierarchy_search(data).await.unwrap();
 }
 
 #[tokio::test]
 async fn e2e_test_hierarchy_search_by_entity() {
     let sg = helpers::get_test_client();
     let login = helpers::get_human_user_login();
-    let token = {
-        let resp: Value = sg
-            .authenticate_script_as_user(&login)
-            .await
-            .expect("Sudo As auth");
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let session = sg
+        .authenticate_script_as_user(&login)
+        .await
+        .expect("Sudo As auth");
 
     let data = HierarchySearchRequest {
         root_path: None,
@@ -432,5 +371,5 @@ async fn e2e_test_hierarchy_search_by_entity() {
         seed_entity_field: None,
     };
 
-    sg.hierarchy_search(&token, data).await.unwrap();
+    session.hierarchy_search(data).await.unwrap();
 }

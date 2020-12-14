@@ -22,8 +22,7 @@
 //! $ cargo run --example entity-file-field-read asset 123456 image [original (alt)] [bytes=0-100 (range)]
 //! ```
 
-use serde_json::Value;
-use shotgun_rs::types::{AltImages, EntityIdentifier, FieldHashResponse};
+use shotgun_rs::types::{AltImages, FieldHashResponse};
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -49,25 +48,16 @@ async fn main() -> shotgun_rs::Result<()> {
     );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let sess = sg.authenticate_script().await?;
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let alt_option: Option<AltImages> = alt.map(|val| match val.as_str() {
+        "original" => AltImages::Original,
+        "thumbnail" => AltImages::Thumbnail,
+        _ => panic!("Invalid image type."),
+    });
 
-    let mut alt_option: Option<AltImages> = None;
-
-    if let Some(val) = alt {
-        let alt_option = match &*val {
-            "original" => Some(AltImages::Original),
-            "thumbnail" => Some(AltImages::Thumbnail),
-            _ => None,
-        };
-    }
-
-    let resp: FieldHashResponse = sg
+    let resp: FieldHashResponse = sess
         .entity_file_field_read(
-            &token,
             &entity_type.unwrap(),
             entity_id.unwrap(),
             &field_name.unwrap(),

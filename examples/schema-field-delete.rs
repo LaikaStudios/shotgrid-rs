@@ -22,7 +22,6 @@
 //! $ cargo run --example schema-field-delete task sg_field_name_to_delete
 //! ```
 
-use serde_json::Value;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -44,12 +43,10 @@ async fn main() -> shotgun_rs::Result<()> {
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let session = sg.authenticate_script().await?;
 
-    sg.schema_field_delete(&token, &entity_type.unwrap(), &field_name.unwrap())
+    session
+        .schema_field_delete(&entity_type.unwrap(), &field_name.unwrap())
         .await?;
     // Returns 204, nothing to print out
     Ok(())

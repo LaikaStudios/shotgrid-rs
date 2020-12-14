@@ -43,17 +43,14 @@ async fn main() -> shotgun_rs::Result<()> {
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
-    let token = {
-        let resp: Value = sg.authenticate_script_as_user(&login).await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
+    let sess = sg.authenticate_script_as_user(&login).await?;
 
     let entity_filters = vec![("Asset", json!([["sg_status_list", "is_not", "omt"]]))]
         .into_iter()
         .collect();
 
-    let resp: Value = sg
-        .text_search(&token, Some(&text), entity_filters)
+    let resp: Value = sess
+        .text_search(Some(&text), entity_filters)
         .size(limit)
         .execute()
         .await?;

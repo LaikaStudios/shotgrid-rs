@@ -22,7 +22,6 @@
 //! $ cargo run --example entity-unfollow-update 1023 task 123456
 //! ```
 
-use serde_json::Value;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -44,19 +43,11 @@ async fn main() -> shotgun_rs::Result<()> {
     );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let session = sg.authenticate_script().await?;
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    sg.entity_unfollow_update(
-        &token,
-        user_id.unwrap(),
-        &entity_type.unwrap(),
-        entity_id.unwrap(),
-    )
-    .await?;
+    session
+        .entity_unfollow_update(user_id.unwrap(), &entity_type.unwrap(), entity_id.unwrap())
+        .await?;
 
     // Returns 204, nothing to print out
     Ok(())

@@ -22,7 +22,7 @@
 
 use serde_json::json;
 use shotgun_rs::types::{GroupingDirection, GroupingType, SummaryFieldType};
-use shotgun_rs::{Shotgun, TokenResponse};
+use shotgun_rs::Shotgun;
 use std::env;
 
 #[tokio::main]
@@ -40,12 +40,9 @@ async fn main() -> shotgun_rs::Result<()> {
         .expect("invalid project id");
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
-
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
-
-    let summary = sg
+    let sess = sg.authenticate_script().await?;
+    let summary = sess
         .summarize(
-            &access_token,
             "Asset",
             Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
             vec![("id", SummaryFieldType::Count).into()],

@@ -44,15 +44,10 @@ async fn main() -> shotgun_rs::Result<()> {
     );
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let sess = sg.authenticate_script().await?;
 
-    let token = {
-        let resp: Value = sg.authenticate_script().await?;
-        resp["access_token"].as_str().unwrap().to_string()
-    };
-
-    let resp: Value = sg
+    let resp: Value = sess
         .read(
-            &token,
             &entity.unwrap(),
             entity_id.unwrap().parse::<i32>().unwrap(),
             Some(&fields.unwrap()),

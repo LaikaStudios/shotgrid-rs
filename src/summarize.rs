@@ -1,5 +1,5 @@
 use crate::types::Filters;
-use crate::{get_filter_mime, handle_response, Shotgun};
+use crate::{get_filter_mime, handle_response, Session};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -297,8 +297,7 @@ pub enum GroupingType {
 }
 
 pub struct SummarizeReqBuilder<'a> {
-    sg: &'a Shotgun,
-    token: &'a str,
+    session: &'a Session<'a>,
     entity: &'a str,
     // FIXME: python api treats filters as required (and we fallback to empty array).
     //  Maybe just make it required?
@@ -312,15 +311,13 @@ pub struct SummarizeReqBuilder<'a> {
 
 impl<'a> SummarizeReqBuilder<'a> {
     pub fn new(
-        sg: &'a Shotgun,
-        token: &'a str,
+        session: &'a Session<'a>,
         entity: &'a str,
         filters: Option<Value>,
         summary_fields: Vec<SummaryField>,
     ) -> SummarizeReqBuilder<'a> {
         SummarizeReqBuilder {
-            sg,
-            token,
+            session,
             entity,
             filters,
             summary_fields,
@@ -353,15 +350,16 @@ impl<'a> SummarizeReqBuilder<'a> {
             options: self.options,
         };
 
-        let req = self
-            .sg
+        let (sg, token) = self.session.get_sg().await?;
+
+        let req = sg
             .client
             .post(&format!(
                 "{}/api/v1/entity/{}/_summarize",
-                self.sg.sg_server, self.entity
+                sg.sg_server, self.entity
             ))
             .header("Accept", "application/json")
-            .bearer_auth(self.token)
+            .bearer_auth(token)
             .header("Content-Type", content_type)
             // XXX: the content type is being set to shotgun's custom mime types
             //   to indicate the shape of the filter payload. Do not be tempted to use
