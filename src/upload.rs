@@ -31,6 +31,9 @@
 //! <https://developer.shotgunsoftware.com/rest-api/#shotgun-rest-api-Uploading-and-Downloading-Files>
 use crate::types::{Entity, NextUploadPartResponse, UploadInfoResponse, UploadResponse};
 use crate::{handle_response, Result, Session, Shotgun, ShotgunError};
+use futures::stream::poll_fn;
+use futures::task::Poll;
+use futures::{TryStream, TryStreamExt};
 use mime_guess::Mime;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
@@ -49,7 +52,7 @@ pub const MIN_MULTIPART_CHUNK_SIZE: usize = 5 * 1024 * 1024;
 /// behavior of the upload.
 // XXX: we could simplify this type by accepting the file_content as a param
 // to `send()` instead of holding it in the builder. Food for thought.
-pub struct UploadReqBuilder<'a, R: Read> {
+pub struct UploadReqBuilder<'a> {
     session: &'a Session<'a>,
     entity_type: &'a str,
     entity_id: i32,
@@ -61,10 +64,6 @@ pub struct UploadReqBuilder<'a, R: Read> {
     /// with it.
     filename: &'a str,
     mimetype: Option<Mime>, // FIXME: give a way for caller to set this
-    /// The bytes of the file to upload.
-    ///
-    /// Can be any type that implements `Read`.
-    file_content: R,
     // =========================================================================
     // The stuff above this comment is the required point of entry stuff.
     // The stuff below is the truly optional stuff, or stuff we can otherwise
@@ -76,17 +75,13 @@ pub struct UploadReqBuilder<'a, R: Read> {
     multipart_chunk_size: usize,
 }
 
-impl<'a, R> UploadReqBuilder<'a, R>
-where
-    R: Read,
-{
+impl<'a> UploadReqBuilder<'a> {
     pub(crate) fn new(
         session: &'a Session<'a>,
         entity_type: &'a str,
         entity_id: i32,
         field: Option<&'a str>,
         filename: &'a str,
-        file_content: R,
     ) -> Self {
         Self {
             session,
@@ -101,7 +96,6 @@ where
             // XXX: maybe we could open this up to the caller and make them do
             // the guessing? That's what Shotgun did to us after all...
             mimetype: mime_guess::from_path(filename).first(),
-            file_content,
             // Optional stuff
             display_name: None,
             tags: None,
@@ -175,17 +169,19 @@ where
     /// *abort request* will be sent to signal to shotgun that it should not
     /// expect any more chunks. If the *abort request fails* the Err for that
     /// failure will be logged as a warning (not an error).
-    async fn do_multipart_upload(
+    async fn do_multipart_upload<S>(
         sg: &Shotgun,
         token: &str,
-        file_content: R,
+        file_content: S,
         mimetype: Option<Mime>,
         upload_url: String,
         get_next_part: String,
         chunk_size: usize,
     ) -> Result<Vec<String>>
     where
-        R: Read,
+        S: TryStream + Send + Sync + Unpin + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+        bytes::Bytes: From<S::Ok>,
     {
         let mut file_content = file_content;
 
@@ -213,7 +209,6 @@ where
         // a way for folks to customize the size, but it'll probably be tricky
         // since the size has to be specified as a const.
         // Would need to be via a feature flag or some other macro like `env!()`.
-        let mut read_buf = [0_u8; 4 * 1024];
         let mut body_buf = Vec::with_capacity(chunk_size);
 
         let mut uploaded_bytes: usize = 0;
@@ -229,7 +224,10 @@ where
         // requests that hand out upload urls are really equipped for this or if
         // they expect things to happen in a strict sequence).
 
+        log::trace!("Consuming stream for body.");
+        let mut part_count = 0;
         loop {
+            part_count += 1;
             // This loop runs for each chunk of the file we're uploading.
             //
             // There's some preamble to it, but the flow is like:
@@ -244,50 +242,63 @@ where
             loop {
                 // This inner loop is all about pulling bytes out of the reader and
                 // loading them up into a vec of a particular size, ie: `chunk_size`.
-
-                let len = file_content.read(&mut read_buf)?;
-                if len == 0 {
-                    break;
-                }
-                body_buf.extend_from_slice(&read_buf[0..len]);
-                if body_buf.len() >= chunk_size {
-                    break;
+                match file_content.try_next().await.map_err(|_e| {
+                    // FIXME: figure out a way to share the details of the source error.
+                    //  (ON) The Err type from the TryStream needs to be downcast
+                    //  to something so we can look at it, I think.
+                    ShotgunError::UploadError(String::from("File stream read error."))
+                })? {
+                    None => break,
+                    Some(chunk) => {
+                        let chunk: bytes::Bytes = chunk.into();
+                        let len = chunk.len();
+                        if len == 0 {
+                            break;
+                        }
+                        body_buf.extend_from_slice(chunk.as_ref());
+                        if body_buf.len() >= chunk_size {
+                            break;
+                        }
+                    }
                 }
             }
 
             if body_buf.is_empty() {
+                log::trace!("No more bytes read from stream.");
                 break;
             }
 
-            let buf_len = body_buf.len();
+            // It's possible that `body_buf` could be larger than
+            // `chunk_size`. When `chunk_size` is set close to the
+            // max, this could mean the request body would be too
+            // large and could be rejected by the storage service.
+            // Only take *at most* `chunk_size` worth of bytes,
+            // leaving the rest in the buffer for the next iteration
+            // of the loop.
+            let body = if body_buf.len() > chunk_size {
+                body_buf.drain(0..chunk_size)
+            } else {
+                body_buf.drain(..)
+            }
+            .collect::<Vec<_>>();
+
+            let content_len = body.len();
+
             let upload_resp = {
                 let mut upload_req = sg
                     .client
                     .put(&upload_url)
-                    .header("Content-Length", buf_len)
-                    .body(
-                        // It's possible that `body_buf` could be larger than
-                        // `chunk_size`. When `chunk_size` is set close to the
-                        // max, this could mean the request body would be too
-                        // large and could be rejected by the storage service.
-                        // Only take *at most* `chunk_size` worth of bytes,
-                        // leaving the rest in the buffer for the next iteration
-                        // of the loop.
-                        if buf_len > chunk_size {
-                            body_buf.drain(0..chunk_size)
-                        } else {
-                            body_buf.drain(..)
-                        }
-                        .collect::<Vec<_>>(),
-                    )
+                    .header("Content-Length", content_len)
+                    .body(body)
                     .header("Accept", "application/json");
 
                 if let Some(ref mimetype) = mimetype {
                     upload_req = upload_req.header("Content-Type", mimetype.as_ref());
                 }
 
+                log::debug!("Sending part {}, len={}", part_count, content_len);
                 // TODO: add some retries to this
-                upload_req.send().await?.error_for_status().map_err(|e| {
+                let ret = upload_req.send().await?.error_for_status().map_err(|e| {
                     let reason = if let Some(status) = e.status() {
                         format!(
                             "Failed to upload chunk. Storage service responded: `{}`",
@@ -297,7 +308,9 @@ where
                         format!("Failed to upload chunk. Cause: `{}`", e)
                     };
                     ShotgunError::UploadError(reason)
-                })?
+                })?;
+                log::debug!("Sent part {}, len={}", part_count, content_len);
+                ret
             };
 
             let etag = upload_resp
@@ -317,8 +330,8 @@ where
             // no... it's fine.
             etags.push(etag.to_str().unwrap().to_string());
 
-            uploaded_bytes += buf_len;
-            log::trace!("Uploaded {} ({}) bytes.", buf_len, uploaded_bytes);
+            uploaded_bytes += content_len;
+            log::trace!("Uploaded {} ({}) bytes.", content_len, uploaded_bytes);
 
             // XXX: used to force a multi-part upload to fail
             // if uploaded_bytes > buf_len {
@@ -398,7 +411,30 @@ where
         }
     }
 
-    pub async fn send(self) -> Result<()> {
+    pub async fn send<R>(self, mut file_content: R) -> Result<()>
+    where
+        R: Read + Sync + Send + 'static,
+    {
+        let mut read_buf = [0_u8; 4 * 1024];
+
+        let read_stream = poll_fn(move |_| -> Poll<Option<std::io::Result<Vec<u8>>>> {
+            match file_content.read(&mut read_buf) {
+                Ok(len) if len == 0 => Poll::Ready(None),
+                Ok(len) => Poll::Ready(Some(Ok(read_buf[0..len].to_vec()))),
+                Err(err) => Poll::Ready(Some(Err(err))),
+            }
+        });
+
+        log::trace!("Reader converted to stream.");
+        self.send_stream(read_stream).await
+    }
+
+    pub async fn send_stream<S>(self, file_content: S) -> Result<()>
+    where
+        S: TryStream + Send + Sync + Unpin + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+        bytes::Bytes: From<S::Ok>,
+    {
         let Self {
             session,
             entity_type,
@@ -406,7 +442,6 @@ where
             field,
             filename,
             mimetype,
-            mut file_content,
             display_name,
             tags,
             multipart,
@@ -455,6 +490,7 @@ where
                     .await
             }
         }?;
+        log::trace!("Got initial upload info.");
 
         // We need to merge the data from the initial "upload info" request
         // with the fields from the actual upload.
@@ -511,8 +547,10 @@ where
 
         match (storage_service, multipart) {
             (StorageService::Shotgun, false) => {
-                let mut body = vec![];
-                file_content.read_to_end(&mut body)?;
+                log::trace!("Upload to SG storage.");
+
+                let body = reqwest::Body::wrap_stream(file_content);
+
                 let mut upload_req = sg
                     .client
                     .put(upload_url)
@@ -540,8 +578,26 @@ where
                 }
             }
             (StorageService::S3, false) => {
-                let mut body = vec![];
-                file_content.read_to_end(&mut body)?;
+                log::trace!("Upload to S3 storage.");
+                // Since S3 doesn't support chunked encoding, we need to read
+                // the entire stream here. Yikes.
+                let body = {
+                    let mut body = vec![];
+                    let mut file_content = file_content;
+                    while let Some(chunk) = file_content.try_next().await.map_err(|_e| {
+                        // FIXME: figure out a way to share the details of the source error.
+                        //  (ON) The Err type from the TryStream needs to be downcast
+                        //  to something so we can look at it, I think.
+                        ShotgunError::UploadError(format!("File stream read error."))
+                    })? {
+                        let chunk: bytes::Bytes = chunk.into();
+                        body.extend_from_slice(chunk.as_ref());
+                    }
+                    if body.len() > 500 * 1024 * 1024 {
+                        log::warn!("File is larger than 500Mb. Multipart upload required.");
+                    }
+                    body
+                };
                 // S3 uses tokens in the query string instead of auth headers.
                 let mut upload_req = sg
                     .client
@@ -561,6 +617,7 @@ where
                 }
             }
             (StorageService::S3, true) => {
+                log::trace!("Upload to S3 storage (multipart).");
                 let get_next_part = init_resp
                     .links
                     .as_ref()
@@ -634,6 +691,7 @@ where
             }
         }
 
+        log::trace!("Completing upload.");
         let completion_resp = match sg
             .client
             .post(&completion_url)
@@ -819,17 +877,11 @@ mod mock_tests {
         let file_content: Vec<u8> = vec![];
 
         session
-            .upload(
-                "Note",
-                123456,
-                None,
-                "paranorman-poster.jpg",
-                Cursor::new(file_content),
-            )
+            .upload("Note", 123456, None, "paranorman-poster.jpg")
             .display_name(Some(String::from(
                 "Poster art from the release of ParaNorman.",
             )))
-            .send()
+            .send(Cursor::new(file_content))
             .await
             .unwrap();
     }
@@ -901,17 +953,11 @@ mod mock_tests {
         let file_content: Vec<u8> = vec![];
 
         session
-            .upload(
-                "Note",
-                123456,
-                None,
-                "paranorman-poster.jpg",
-                Cursor::new(file_content),
-            )
+            .upload("Note", 123456, None, "paranorman-poster.jpg")
             .display_name(Some(String::from(
                 "Poster art from the release of ParaNorman.",
             )))
-            .send()
+            .send(Cursor::new(file_content))
             .await
             .unwrap();
     }
@@ -1012,15 +1058,9 @@ mod mock_tests {
         let tags = vec![crate::types::Entity::new("Tag", 666)];
 
         match sess
-            .upload(
-                "Note",
-                123456,
-                None,
-                "paranorman-poster.jpg",
-                Cursor::new(file_content),
-            )
+            .upload("Note", 123456, None, "paranorman-poster.jpg")
             .tags(Some(tags))
-            .send()
+            .send(Cursor::new(file_content))
             .await
         {
             Err(ShotgunError::ServerError(errors)) => assert_eq!(errors[0].status, Some(400)),
@@ -1085,15 +1125,9 @@ mod mock_tests {
         let file_content: Vec<u8> = vec![];
 
         match sess
-            .upload(
-                "Note",
-                123456,
-                None,
-                "paranorman-poster.jpg",
-                Cursor::new(file_content),
-            )
+            .upload("Note", 123456, None, "paranorman-poster.jpg")
             .multipart(true)
-            .send()
+            .send(Cursor::new(file_content))
             .await
         {
             Err(ShotgunError::ServerError(errors)) => {
@@ -1223,10 +1257,9 @@ mod mock_tests {
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
-                Cursor::new(file_content),
             )
             .multipart(true)
-            .send()
+            .send(Cursor::new(file_content))
             .await
             .unwrap()
     }
@@ -1323,11 +1356,10 @@ mod mock_tests {
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
-                Cursor::new(file_content),
             )
             .multipart(true)
             .chunk_size(5 * 1024 * 1024)
-            .send()
+            .send(Cursor::new(file_content))
             .await
         {
             Err(ShotgunError::UploadError(msg))
@@ -1432,11 +1464,10 @@ mod mock_tests {
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
-                Cursor::new(file_content),
             )
             .multipart(true)
             .chunk_size(5 * 1024 * 1024)
-            .send()
+            .send(Cursor::new(file_content))
             .await
         {
             Err(ShotgunError::UploadError(msg)) if msg.contains("Failed to upload chunk") => {}
@@ -1555,10 +1586,9 @@ mod mock_tests {
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
-                Cursor::new(file_content),
             )
             .multipart(true)
-            .send()
+            .send(Cursor::new(file_content))
             .await
         {
             Err(ShotgunError::UploadError(msg)) if msg.contains("aborted") => {}
@@ -1684,10 +1714,9 @@ mod mock_tests {
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
-                Cursor::new(file_content),
             )
             .multipart(true)
-            .send()
+            .send(Cursor::new(file_content))
             .await
         {
             Err(ShotgunError::UploadError(msg)) if msg.contains("aborted") => {}
@@ -1727,16 +1756,10 @@ mod mock_tests {
         let file_content: Vec<u8> = vec![];
 
         match sess
-            .upload(
-                "Note",
-                123456,
-                Some("attachments"),
-                "paranorman-poster.jpg",
-                Cursor::new(file_content),
-            )
+            .upload("Note", 123456, Some("attachments"), "paranorman-poster.jpg")
             .multipart(true)
             .chunk_size((5 * 1024 * 1024) - 1) // Too small
-            .send()
+            .send(Cursor::new(file_content))
             .await
         {
             Err(ShotgunError::UploadError(msg)) if msg.contains("chunk size must be between") => {}
@@ -1776,16 +1799,10 @@ mod mock_tests {
         let file_content: Vec<u8> = vec![];
 
         match sess
-            .upload(
-                "Note",
-                123456,
-                Some("attachments"),
-                "paranorman-poster.jpg",
-                Cursor::new(file_content),
-            )
+            .upload("Note", 123456, Some("attachments"), "paranorman-poster.jpg")
             .multipart(true)
             .chunk_size((500 * 1024 * 1024) + 1) // Too big
-            .send()
+            .send(Cursor::new(file_content))
             .await
         {
             Err(ShotgunError::UploadError(msg)) if msg.contains("chunk size must be between") => {}

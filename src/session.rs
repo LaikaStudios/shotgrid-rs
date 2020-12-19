@@ -20,8 +20,6 @@ use crate::{Shotgun, TokenResponse};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::Read;
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Session<'sg> {
@@ -38,7 +36,7 @@ pub struct Session<'sg> {
     // and for the `Session` object to *still be executing code*.
     //
     // <https://doc.rust-lang.org/nomicon/poisoning.html>
-    tokens: Mutex<TokenResponse>,
+    tokens: tokio::sync::Mutex<TokenResponse>,
     client: &'sg Shotgun,
 }
 
@@ -50,10 +48,10 @@ const TOKEN_REFRESH_SLOP: u64 = 90;
 
 impl<'sg> Session<'sg> {
     pub(crate) fn new(sg: &'sg Shotgun, initial_auth: TokenResponse) -> Self {
+        log::trace!("New session.");
         Self {
             client: sg,
-            tokens: Mutex::new(initial_auth),
-
+            tokens: tokio::sync::Mutex::new(initial_auth),
             last_refresh: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -67,18 +65,15 @@ impl<'sg> Session<'sg> {
     /// This is mostly just a stepping stone to bridge session vs pre-session
     /// code.
     pub(crate) async fn get_sg(&self) -> Result<(&Shotgun, String)> {
-        if self.token_expiring() {
+        if self.token_expiring().await {
             self.refresh_token().await?;
         }
-        Ok((
-            self.client,
-            self.tokens.lock().unwrap().access_token.clone(),
-        ))
+        Ok((self.client, self.tokens.lock().await.access_token.clone()))
     }
 
     /// Check to see if we should try to refresh early.
-    fn token_expiring(&self) -> bool {
-        let ttl = { self.tokens.lock().unwrap().expires_in };
+    async fn token_expiring(&self) -> bool {
+        let ttl = { self.tokens.lock().await.expires_in };
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -98,7 +93,8 @@ impl<'sg> Session<'sg> {
     /// This has implications for cloning - we may need to add an Arc that can be
     /// cloned so that all clones of a Session share the same mutex.
     async fn refresh_token(&self) -> Result<()> {
-        let mut tokens = self.tokens.lock().unwrap();
+        let mut tokens = self.tokens.lock().await;
+
         *tokens = self
             .client
             .authenticate(&[
@@ -915,14 +911,13 @@ impl<'sg> Session<'sg> {
     ///     // A `None` for the `field` param means this is a attachment upload.
     ///     None,
     ///     &filename,
-    ///     file
     /// )
     /// // Non-thumbnail uploads can include some short descriptive text to
     /// // use as the display name (shown in attachment lists, etc).
     /// .display_name(Some(String::from(
     ///     "ParaNorman Poster Art",
     /// )))
-    /// .send()
+    /// .send(file)
     /// .await?;
     /// # Ok(())
     /// # }
@@ -952,9 +947,8 @@ impl<'sg> Session<'sg> {
     ///     // Setting `field` to "image" means this is a thumbnail upload.
     ///     Some("image"),
     ///     &filename,
-    ///     file,
     /// )
-    /// .send()
+    /// .send(file)
     /// .await?;
     /// # Ok(())
     /// # }
@@ -985,12 +979,11 @@ impl<'sg> Session<'sg> {
     ///     123456,
     ///     None,
     ///     "screenplay.txt",
-    ///     movie_script.as_bytes(),
     /// )
     /// .display_name(Some(String::from(
     ///     "Spec script for a great new movie.",
     /// )))
-    /// .send()
+    /// .send(movie_script.as_bytes())
     /// .await?;
     /// # Ok(())
     /// # }
@@ -1032,18 +1025,14 @@ impl<'sg> Session<'sg> {
     ///
     /// [`File`]: https://doc.rust-lang.org/std/fs/struct.File.html
     /// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
-    pub fn upload<'a, R>(
+    pub fn upload<'a>(
         &'a self,
         entity: &'a str,
         id: i32,
         field: Option<&'a str>,
         filename: &'a str,
-        file_content: R,
-    ) -> upload::UploadReqBuilder<'a, R>
-    where
-        R: Read,
-    {
-        UploadReqBuilder::new(self, entity, id, field, filename, file_content)
+    ) -> upload::UploadReqBuilder<'a> {
+        UploadReqBuilder::new(self, entity, id, field, filename)
     }
 
     /// Provides access to the list of entities a user follows.
@@ -1167,7 +1156,7 @@ mod mock_tests {
             .await
             .unwrap();
 
-        assert_eq!(false, session.token_expiring());
+        assert_eq!(false, session.token_expiring().await);
     }
 
     #[tokio::test]
@@ -1197,7 +1186,7 @@ mod mock_tests {
             .await
             .unwrap();
 
-        assert_eq!(true, session.token_expiring());
+        assert_eq!(true, session.token_expiring().await);
     }
 
     #[tokio::test]
@@ -1227,7 +1216,7 @@ mod mock_tests {
             .await
             .unwrap();
 
-        assert_eq!(true, session.token_expiring());
+        assert_eq!(true, session.token_expiring().await);
     }
 
     #[tokio::test]
@@ -1257,6 +1246,6 @@ mod mock_tests {
             .await
             .unwrap();
 
-        assert_eq!(true, session.token_expiring());
+        assert_eq!(true, session.token_expiring().await);
     }
 }

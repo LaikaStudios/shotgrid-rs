@@ -52,9 +52,9 @@ async fn main() -> shotgun_rs::Result<()> {
     let filename = file_path.file_name().as_ref().unwrap().to_string_lossy();
 
     session
-        .upload(&entity, entity_id, Some("attachments"), &filename, fh)
+        .upload(&entity, entity_id, Some("attachments"), &filename)
         .display_name(display_name)
-        .send()
+        .send(fh)
         .await?;
 
     Ok(())
