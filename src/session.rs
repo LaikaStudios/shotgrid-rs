@@ -3,6 +3,7 @@
 //! The high-level aim is to give the caller an API that doesn't ever ask for an
 //! access token. Instead the session will pass the tokens around for the caller,
 //! and refresh it as needed, behind the scenes.
+use crate::filters::FinalizedFilters;
 use crate::text_search::TextSearchBuilder;
 use crate::types::{
     AltImages, BatchedRequestsResponse, CreateFieldRequest, CreateUpdateFieldProperty,
@@ -22,20 +23,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// Note that since each Session holds refresh tokens *which can only be used once*
+// This struct should *not* implement `Clone`.
 pub struct Session<'sg> {
     last_refresh: u64,
-    // You'll see the mutex lock blindly unwrapped a lot in this module.
-    // My understanding is, `Mutex::lock()` should only panic if *something
-    // panics* while the lock is being held, leaving the guarded data in a
-    // potentially inconsistent state.
-    //
-    // Since `Session` is not `Send`, this means such a panic would have to have
-    // occurred *in the same thread* as the `Session` object itself.
-    //
-    // By this logic it should be impossible for a panic to both *poison the lock*
-    // and for the `Session` object to *still be executing code*.
-    //
-    // <https://doc.rust-lang.org/nomicon/poisoning.html>
     tokens: tokio::sync::Mutex<TokenResponse>,
     client: &'sg Shotgun,
 }
@@ -698,11 +689,11 @@ impl<'sg> Session<'sg> {
         &'a self,
         entity: &'a str,
         fields: &'a str,
-        filters: &'a Value,
-    ) -> Result<SearchBuilder<'a>> {
+        filters: &'a FinalizedFilters,
+    ) -> SearchBuilder<'a> {
         // FIXME: should return builder, not result
         //  The terminal method can do any needed validation.
-        Ok(SearchBuilder::new(self, entity, fields, filters)?)
+        SearchBuilder::new(self, entity, fields, filters)
     }
 
     /// Make a summarize request.
@@ -712,18 +703,21 @@ impl<'sg> Session<'sg> {
     /// query results into buckets.
     ///
     /// ```no_run
-    /// use serde_json::{json, Value};
     /// use shotgun_rs::{Shotgun, TokenResponse};
     /// use shotgun_rs::types::{ResourceArrayResponse, SelfLink};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> shotgun_rs::Result<()> {
     /// use shotgun_rs::types::SummaryFieldType;
+    /// use shotgun_rs::filters::{self, field, EntityRef};
+    ///
     /// let server = String::from("https://shotgun.example.com");
     /// let sg = Shotgun::new(server, Some("my-api-user"), Some("********"))?;
     /// let sess = sg.authenticate_script_as_user("nbabcock").await?;
     ///
-    /// let filters = json!([["project", "is", {"type": "Project", "id": 4 }]]);
+    /// let filters = filters::basic(&[
+    ///     field("project").is(EntityRef::new("Project", 4))
+    /// ]);
     /// let summary_fields = vec![("id", SummaryFieldType::Count).into()];
     ///
     /// let summary = sess
@@ -743,7 +737,7 @@ impl<'sg> Session<'sg> {
         entity: &'a str,
         // FIXME: python api treats filters as required (and we fallback to empty array).
         //  Maybe just make it required?
-        filters: Option<Value>,
+        filters: Option<FinalizedFilters>,
         summary_fields: Vec<SummaryField>,
     ) -> SummarizeReqBuilder<'a> {
         summarize::SummarizeReqBuilder::new(self, entity, filters, summary_fields)
@@ -760,9 +754,10 @@ impl<'sg> Session<'sg> {
     /// # Examples
     ///
     /// ```no_run
-    /// use serde_json::{json, Value};
+    /// use serde_json::Value;
     /// use shotgun_rs::{Shotgun, TokenResponse};
     /// use shotgun_rs::types::{ResourceArrayResponse, SelfLink};
+    /// use shotgun_rs::filters::{self, field};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> shotgun_rs::Result<()> {
@@ -771,7 +766,7 @@ impl<'sg> Session<'sg> {
     /// let sess = sg.authenticate_script_as_user("nbabcock").await?;
     ///
     /// let entity_filters = vec![
-    ///     ("Asset", json!([["sg_status_list", "is_not", "omt"]]))
+    ///     ("Asset", filters::basic(&[field("sg_status_list").is_not("omt")]))
     /// ]
     /// .into_iter()
     /// .collect();
@@ -802,7 +797,7 @@ impl<'sg> Session<'sg> {
     pub fn text_search<'a>(
         &'a self,
         text: Option<&'a str>,
-        entity_filters: HashMap<&'a str, Value>,
+        entity_filters: HashMap<&'a str, FinalizedFilters>,
     ) -> TextSearchBuilder<'a> {
         TextSearchBuilder::new(self, text, entity_filters)
     }

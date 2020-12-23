@@ -42,10 +42,10 @@
 //! ```
 //!
 //! Once your client is in hand, you'd use one of the authentication methods to
-//! get an `access_token`.
+//! get a [`Session`].
 //!
 //! ```no_run
-//! # use shotgun_rs::{Shotgun, TokenResponse};
+//! # use shotgun_rs::Shotgun;
 //! # #[tokio::main]
 //! # async fn main() -> shotgun_rs::Result<()> {
 //! #    let server = "https://my-shotgun.example.com";
@@ -53,30 +53,31 @@
 //! #    let script_key = "********";
 //! #    let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
 //! // Authenticates using the script name and script key held by the client.
-//! let sess = sg.authenticate_script().await?;
+//! let session = sg.authenticate_script().await?;
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! From there, you can pass that access token around to the various query methods.
+//! From there, you can use that [`Session`] to invoke the various query
+//! methods, either to use Shotgun's [rich filter API](`filters`) to find
+//! records, or to create/update records.
 //!
-//! For operations where the schema of the response is flexible (based on the
+//! For operations where the schema of the response is *flexible* (based on the
 //! entity type and return fields specified), we use generics to allow the
 //! caller to unpack the response into the type of their choosing. The type just
-//! needs to implement [serde]'s `Deserialize` trait. A number of structs are
-//! provided (ex: `TokenResponse`) to cover responses that are pretty much the
-//! same for everybody.
+//! needs to implement [serde]'s `Deserialize` trait.
 //!
-//! Others structs are generic over types deeper in the data structure.
-//! For example, `ResourceArrayResponse<R, L>` is generic over `R`
-//! (the resource) which is the items in the array portion of the response, and
-//! `L` which is the type for the response's "links" key).
+//! A number of structs that are generic over types deeper in the data structure
+//! are provided.
+//! For example, [`ResourceArrayResponse`](`types::ResourceArrayResponse`) is
+//! generic over `R` (the resource) which is the items in the array portion of
+//! the response, and `L` which is the type for the response's "links" key).
 //!
 //! ```no_run
 //! use serde_derive::Deserialize;
-//! use serde_json::json;
 //! use shotgun_rs::types::{PaginationLinks, ResourceArrayResponse, SelfLink};
-//! use shotgun_rs::{Shotgun, TokenResponse};
+//! use shotgun_rs::Shotgun;
+//! use shotgun_rs::filters;
 //!
 //!
 //! /// This struct should match the return fields specified for the search.
@@ -104,14 +105,14 @@
 //!
 //!     let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
 //!
-//!     let sess = sg.authenticate_script().await?;
+//!     let session = sg.authenticate_script().await?;
 //!
 //!     let return_fields = ["id", "code", "name"].join(",");
 //!
 //!     // Using type ascription (or a turbofish), we tell search() how to
 //!     // deserialize the response.
-//!     let resp: ResourceArrayResponse<Project, PaginationLinks> = sess
-//!         .search("Project", &return_fields, &json!([]))?
+//!     let resp: ResourceArrayResponse<Project, PaginationLinks> = session
+//!         .search("Project", &return_fields, &filters::empty())
 //!         .size(Some(3))
 //!         .execute()
 //!         .await?;
@@ -166,6 +167,7 @@ use reqwest::Response;
 // FIXME: re-export the whole reqwest crate.
 pub use reqwest::{Certificate, Client};
 mod entity_relationship_read;
+pub mod filters;
 mod schema;
 mod search;
 mod session;
@@ -201,16 +203,6 @@ fn get_client() -> Result<Client> {
     builder
         .build()
         .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))
-}
-
-fn get_filter_mime(maybe_filters: &Value) -> Result<&'static str> {
-    if maybe_filters.is_array() {
-        Ok("application/vnd+shotgun.api3_array+json")
-    } else if maybe_filters.is_object() {
-        Ok("application/vnd+shotgun.api3_hash+json")
-    } else {
-        Err(ShotgunError::InvalidFilters)
-    }
 }
 
 #[derive(Clone, Debug)]

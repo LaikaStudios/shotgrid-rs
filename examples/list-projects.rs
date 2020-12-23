@@ -23,7 +23,8 @@
 #[macro_use]
 extern crate prettytable;
 use prettytable::{format, Table};
-use serde_json::{json, Value};
+use serde_json::Value;
+use shotgun_rs::filters;
 use shotgun_rs::Shotgun;
 use std::env;
 
@@ -39,7 +40,7 @@ async fn main() -> shotgun_rs::Result<()> {
     let sess = sg.authenticate_script().await?;
 
     let resp: Value = sess
-        .search("Project", "id,code,name", &json!([]))?
+        .search("Project", "id,code,name", &filters::empty())
         .size(Some(3))
         .number(Some(2))
         .execute()

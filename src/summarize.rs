@@ -1,15 +1,15 @@
-use crate::types::Filters;
-use crate::{get_filter_mime, handle_response, Session};
+use crate::filters::FinalizedFilters;
+use crate::{handle_response, Session};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
 /// Request body of a summarize query.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
 pub struct SummarizeRequest {
     /// Filters used to perform the initial search for things you will be
     /// aggregating.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub filters: Option<Filters>, // FIXME: SGRS-32 filters need better types
+    pub filters: Option<FinalizedFilters>,
 
     /// Summary fields represent the calculated values produced per
     /// grouping.
@@ -301,7 +301,7 @@ pub struct SummarizeReqBuilder<'a> {
     entity: &'a str,
     // FIXME: python api treats filters as required (and we fallback to empty array).
     //  Maybe just make it required?
-    filters: Option<Value>,
+    filters: Option<FinalizedFilters>,
     // required (but empty array is legal) despite api spec
     summary_fields: Vec<SummaryField>,
     // TODO: move these to a builder
@@ -313,7 +313,7 @@ impl<'a> SummarizeReqBuilder<'a> {
     pub fn new(
         session: &'a Session<'a>,
         entity: &'a str,
-        filters: Option<Value>,
+        filters: Option<FinalizedFilters>,
         summary_fields: Vec<SummaryField>,
     ) -> SummarizeReqBuilder<'a> {
         SummarizeReqBuilder {
@@ -341,7 +341,11 @@ impl<'a> SummarizeReqBuilder<'a> {
     pub async fn execute(self) -> crate::Result<SummarizeResponse> {
         // FIXME: python api treats filters as required (and we fallback to empty array).
         //  Maybe just make it required?
-        let content_type = get_filter_mime(self.filters.as_ref().unwrap_or(&json!([])))?;
+        let content_type = self
+            .filters
+            .as_ref()
+            .map(|filters| filters.get_mime())
+            .unwrap_or(crate::filters::MIME_FILTER_ARRAY);
 
         let body = SummarizeRequest {
             filters: self.filters,

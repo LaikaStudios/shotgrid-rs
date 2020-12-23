@@ -1,28 +1,29 @@
+use crate::filters::FinalizedFilters;
 use crate::types::PaginationParameter;
-use crate::{get_filter_mime, handle_response, Session, ShotgunError};
+use crate::{handle_response, Session, ShotgunError};
 use serde::de::DeserializeOwned;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 
-pub type EntityFilters<'a> = HashMap<&'a str, Value>;
+pub type EntityFilters<'a> = HashMap<&'a str, FinalizedFilters>;
 
 fn get_entity_filters_mime(entity_filters: &EntityFilters) -> crate::Result<&'static str> {
     // If there are no filters at all, the mime doesn't really matter.
     if entity_filters.is_empty() {
-        return Ok("application/vnd+shotgun.api3_array+json");
+        return Ok(crate::filters::MIME_FILTER_ARRAY);
     }
 
     let mut filters = entity_filters.values();
     if entity_filters.len() > 1 {
-        let first = get_filter_mime(filters.next().unwrap())?;
+        let first = filters.next().unwrap().get_mime();
         for filter in filters {
-            if first != get_filter_mime(filter)? {
+            if first != filter.get_mime() {
                 return Err(ShotgunError::InvalidFilters);
             }
         }
         Ok(first)
     } else {
-        get_filter_mime(filters.next().unwrap())
+        Ok(filters.next().unwrap().get_mime())
     }
 }
 
@@ -115,12 +116,13 @@ impl<'a> TextSearchBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filters::{self, field};
 
     #[test]
     fn test_get_entity_filters_mime_array_entity_types() {
         let filters = vec![
-            ("Project", json!([["is_demo", "is", true]])),
-            ("Asset", json!([["sg_status", "is", "Hold"]])),
+            ("Project", filters::basic(&[field("is_demo").is(true)])),
+            ("Asset", filters::basic(&[field("sg_status").is("Hold")])),
         ]
         .into_iter()
         .collect();
@@ -132,9 +134,25 @@ mod tests {
     #[test]
     fn test_get_entity_filters_mime_object_entity_types() {
         let filters = vec![
-            ("Project", json!({"logical_operator": "and", "conditions": [["is_demo", "is", true], ["code", "is", "Foobar"]]})),
-            ("Asset", json!({"logical_operator": "or", "conditions": [["sg_status", "is", "Hold"], ["code", "is", "FizzBuzz"]]})),
-        ].into_iter().collect();
+            (
+                "Project",
+                filters::complex(filters::and(&[
+                    field("is_demo").is(true),
+                    field("code").is("Foobar"),
+                ]))
+                .unwrap(),
+            ),
+            (
+                "Asset",
+                filters::complex(filters::or(&[
+                    field("sg_status").is("Hold"),
+                    field("code").is("FizzBuzz"),
+                ]))
+                .unwrap(),
+            ),
+        ]
+        .into_iter()
+        .collect();
 
         let expected_mime = "application/vnd+shotgun.api3_hash+json";
         assert_eq!(get_entity_filters_mime(&filters).unwrap(), expected_mime);
@@ -143,9 +161,18 @@ mod tests {
     #[test]
     fn test_get_entity_filters_mime_mixed_entity_types_should_fail() {
         let filters = vec![
-            ("Project", json!({"logical_operator": "and", "conditions": [["is_demo", "is", true], ["code", "is", "Foobar"]]})),
-            ("Asset", json!([["sg_status", "is", "Hold"]])),
-        ].into_iter().collect();
+            (
+                "Project",
+                filters::complex(filters::and(&[
+                    field("is_demo").is(true),
+                    field("code").is("Foobar"),
+                ]))
+                .unwrap(),
+            ),
+            ("Asset", filters::basic(&[field("sg_status").is("Hold")])),
+        ]
+        .into_iter()
+        .collect();
 
         let result = get_entity_filters_mime(&filters);
         match result {

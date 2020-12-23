@@ -17,6 +17,7 @@
 //! - `TEST_SG_PROJECT_ID`, some tests require a project to filter by.
 
 use serde_json::{json, Value};
+use shotgun_rs::filters::{self, field, EntityRef};
 use shotgun_rs::types::{
     Entity, GroupingDirection, GroupingType, HierarchyEntityFields, HierarchyExpandRequest,
     HierarchySearchCriteria, HierarchySearchRequest, SummaryFieldType,
@@ -44,8 +45,11 @@ async fn e2e_test_list_projects() {
     let session = sg.authenticate_script().await.expect("ApiUser auth");
 
     session
-        .search("Project", &["id", "code", "name"].join(","), &json!([]))
-        .unwrap()
+        .search(
+            "Project",
+            &["id", "code", "name"].join(","),
+            &filters::empty(),
+        )
         .size(Some(3))
         .number(Some(1))
         .execute::<Value>()
@@ -100,7 +104,9 @@ async fn e2e_test_summarize_project_assets() {
     session
         .summarize(
             "Asset",
-            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+            Some(filters::basic(&[
+                field("project").is(EntityRef::new("Project", project_id))
+            ])),
             vec![("id", SummaryFieldType::Count).into()],
         )
         .grouping(Some(vec![(
@@ -143,7 +149,9 @@ async fn e2e_test_summarize_empty_summary_fields() {
     session
         .summarize(
             "Asset",
-            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+            Some(filters::basic(&[
+                field("project").is(EntityRef::new("Project", project_id))
+            ])),
             vec![],
         )
         .grouping(Some(vec![(
@@ -166,7 +174,9 @@ async fn e2e_test_summarize_no_groupings() {
     session
         .summarize(
             "Asset",
-            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+            Some(filters::basic(&[
+                field("project").is(EntityRef::new("Project", project_id))
+            ])),
             vec![("id", SummaryFieldType::Count).into()],
         )
         .execute()
@@ -201,7 +211,7 @@ async fn e2e_test_text_search() {
     session
         .text_search(
             Some("foobar"),
-            vec![("Asset", json!([]))].into_iter().collect(),
+            vec![("Asset", filters::empty())].into_iter().collect(),
         )
         .execute::<Value>()
         .await

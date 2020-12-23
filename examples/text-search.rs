@@ -22,9 +22,9 @@
 //! $ cargo run --example text-search <shotgun login to search as> <asset name to search for> [limit]
 //! ```
 
-use serde_json::{json, Value};
+use serde_json::Value;
+use shotgun_rs::filters::{self, field};
 use shotgun_rs::Shotgun;
-
 use std::env;
 
 #[tokio::main]
@@ -45,9 +45,12 @@ async fn main() -> shotgun_rs::Result<()> {
 
     let sess = sg.authenticate_script_as_user(&login).await?;
 
-    let entity_filters = vec![("Asset", json!([["sg_status_list", "is_not", "omt"]]))]
-        .into_iter()
-        .collect();
+    let entity_filters = vec![(
+        "Asset",
+        filters::basic(&[field("sg_status_list").is_not("omt")]),
+    )]
+    .into_iter()
+    .collect();
 
     let resp: Value = sess
         .text_search(Some(&text), entity_filters)

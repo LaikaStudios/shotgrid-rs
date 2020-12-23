@@ -20,7 +20,7 @@
 //! $ cargo run --example summarize-project-assets <project id>
 //! ```
 
-use serde_json::json;
+use shotgun_rs::filters::{self, field, EntityRef};
 use shotgun_rs::types::{GroupingDirection, GroupingType, SummaryFieldType};
 use shotgun_rs::Shotgun;
 use std::env;
@@ -41,10 +41,13 @@ async fn main() -> shotgun_rs::Result<()> {
 
     let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
     let sess = sg.authenticate_script().await?;
+
     let summary = sess
         .summarize(
             "Asset",
-            Some(json!([["project", "is", {"type": "Project", "id": project_id}]])),
+            Some(filters::basic(&[
+                field("project").is(EntityRef::new("Project", project_id))
+            ])),
             vec![("id", SummaryFieldType::Count).into()],
         )
         .grouping(Some(

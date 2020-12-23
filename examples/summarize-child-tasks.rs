@@ -20,7 +20,7 @@
 //! $ cargo run --example summarize-child-tasks <task ids...>
 //! ```
 
-use serde_json::json;
+use shotgun_rs::filters::{self, field};
 use shotgun_rs::types::{GroupingType, SummaryFieldType};
 use shotgun_rs::Shotgun;
 use std::env;
@@ -48,7 +48,9 @@ async fn main() -> shotgun_rs::Result<()> {
     let resp = sess
         .summarize(
             "Task",
-            Some(json!([["sg_parent_task.Task.id", "in", &parent_tasks]])),
+            Some(filters::basic(&[
+                field("sg_parent_task.Task.id").in_(&parent_tasks)
+            ])),
             vec![("id", SummaryFieldType::Count).into()],
         )
         .grouping(Some(

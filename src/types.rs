@@ -10,8 +10,6 @@ pub use crate::summarize::{
 use serde_json::Value;
 use std::collections::HashMap;
 
-pub type Filters = Value; // FIXME: SGRS-32 need a more sophisticated representation for filters.
-
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSactivityupdate>
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ActivityUpdate {
@@ -408,10 +406,10 @@ pub enum ReturnOnly {
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSsearchrequest>
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct SearchRequest {
     /// Either an array of arrays or a FilterHash
-    pub filters: Option<Filters>, // FIXME: SGRS-32 filters need better types
+    pub filters: Option<crate::filters::FinalizedFilters>,
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocSselflink>
@@ -439,15 +437,9 @@ pub struct SingleResourceResponse<R, L> {
 }
 
 /// <https://developer.shotgunsoftware.com/rest-api/#tocStextsearchrequest>
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
 pub struct TextSearchRequest {
-    /// Each `Filters` in this map must be of the same kind (array vs hash).
-    // FIXME: SGRS-32 filters need better types
-    //  We might look at using a generic: TaskSearchRequest<F> to try
-    //  and ensure all the filters are the same kind at compile-time.
-    //  Either that, or we need a fallible constructor to verify the filters
-    //  before this type can be built at runtime.
-    pub entity_types: HashMap<String, Filters>,
+    pub entity_types: HashMap<String, crate::filters::FinalizedFilters>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<PaginationParameter>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -2,7 +2,8 @@
 //! Some utils for the integration tests.
 
 use futures::future;
-use serde_json::{json, Value};
+use serde_json::Value;
+use shotgun_rs::filters::{self, field};
 use shotgun_rs::{Session, Shotgun};
 
 pub fn get_human_user_login() -> String {
@@ -15,13 +16,9 @@ pub async fn get_human_user_id(sess: &Session<'_>) -> i32 {
         .search(
             "HumanUser",
             "id",
-            &json!([[
-                "login",
-                "is",
-                std::env::var("TEST_SG_HUMAN_USER_LOGIN").expect("TEST_SG_HUMAN_USER_LOGIN")
-            ]]),
+            &filters::basic(&[field("login")
+                .is(std::env::var("TEST_SG_HUMAN_USER_LOGIN").expect("TEST_SG_HUMAN_USER_LOGIN"))]),
         )
-        .unwrap()
         .size(Some(1))
         .execute()
         .await
@@ -51,13 +48,10 @@ pub async fn get_api_user_id(sess: &Session<'_>) -> i32 {
         .search(
             "ApiUser",
             "id",
-            &json!([[
-                "firstname",
-                "is",
-                std::env::var("TEST_SG_SCRIPT_NAME").unwrap()
-            ]]),
+            &filters::basic(
+                &[field("firstname").is(std::env::var("TEST_SG_SCRIPT_NAME").unwrap())],
+            ),
         )
-        .unwrap()
         .size(Some(1))
         .execute()
         .await
