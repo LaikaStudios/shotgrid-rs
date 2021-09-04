@@ -14,8 +14,8 @@ use crate::types::{
     UploadInfoResponse,
 };
 use crate::{
-    handle_response, summarize, upload, EntityRelationshipReadReqBuilder, Result, SearchBuilder,
-    ShotgunError, SummarizeReqBuilder, UploadReqBuilder,
+    handle_response, summarize, upload, EntityRelationshipReadReqBuilder, Error, Result,
+    SearchBuilder, SummarizeReqBuilder, UploadReqBuilder,
 };
 use crate::{Shotgun, TokenResponse};
 use serde::de::DeserializeOwned;
@@ -155,7 +155,7 @@ impl<'sg> Session<'sg> {
         if resp.status().is_success() {
             Ok(())
         } else {
-            Err(ShotgunError::Unexpected(format!(
+            Err(Error::Unexpected(format!(
                 "Server responded to `DELETE {}` with `{}`",
                 &url,
                 resp.status()
@@ -583,7 +583,7 @@ impl<'sg> Session<'sg> {
         if req.status().is_success() {
             Ok(())
         } else {
-            Err(ShotgunError::Unexpected(format!(
+            Err(Error::Unexpected(format!(
                 "Server responded to `DELETE {}` with `{}`",
                 &url,
                 req.status()
@@ -611,7 +611,7 @@ impl<'sg> Session<'sg> {
         if req.status().is_success() {
             Ok(())
         } else {
-            Err(ShotgunError::Unexpected(format!(
+            Err(Error::Unexpected(format!(
                 "Server responded to `POST {}` with `{}`",
                 &url,
                 req.status()

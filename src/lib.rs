@@ -155,10 +155,6 @@ use std::fs::File;
 use std::io::Read;
 #[macro_use]
 extern crate serde_derive;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
-#[macro_use]
-extern crate failure;
 use crate::types::{ErrorObject, ErrorResponse};
 use log::{debug, error, trace};
 use reqwest::Response;
@@ -166,6 +162,8 @@ use reqwest::Response;
 /// Client via `Shotgun::with_client()`.
 // FIXME: re-export the whole reqwest crate.
 pub use reqwest::{Certificate, Client};
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 mod entity_relationship_read;
 pub mod filters;
 mod schema;
@@ -181,7 +179,7 @@ pub use crate::summarize::SummarizeReqBuilder;
 pub use search::SearchBuilder;
 pub use upload::{UploadReqBuilder, MAX_MULTIPART_CHUNK_SIZE, MIN_MULTIPART_CHUNK_SIZE};
 
-pub type Result<T> = std::result::Result<T, ShotgunError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Get a default http client with ca certs added to it if specified via env var.
 fn get_client() -> Result<Client> {
@@ -191,18 +189,18 @@ fn get_client() -> Result<Client> {
         debug!("Using ca bundle from: `{}`", fp);
         let mut buf = Vec::new();
         File::open(fp)
-            .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?
+            .map_err(|e| Error::BadClientConfig(e.to_string()))?
             .read_to_end(&mut buf)
-            .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?;
-        let cert = Certificate::from_pem(&buf)
-            .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))?;
+            .map_err(|e| Error::BadClientConfig(e.to_string()))?;
+        let cert =
+            Certificate::from_pem(&buf).map_err(|e| Error::BadClientConfig(e.to_string()))?;
         builder.add_root_certificate(cert)
     } else {
         builder
     };
     builder
         .build()
-        .map_err(|e| ShotgunError::BadClientConfig(e.to_string()))
+        .map_err(|e| Error::BadClientConfig(e.to_string()))
 }
 
 #[derive(Clone, Debug)]
@@ -301,9 +299,7 @@ impl Shotgun {
                 .await?,
             ))
         } else {
-            Err(ShotgunError::BadClientConfig(
-                "Missing script name or key.".into(),
-            ))
+            Err(Error::BadClientConfig("Missing script name or key.".into()))
         }
     }
 
@@ -327,9 +323,7 @@ impl Shotgun {
                 .await?,
             ))
         } else {
-            Err(ShotgunError::BadClientConfig(
-                "Missing script name or key.".into(),
-            ))
+            Err(Error::BadClientConfig("Missing script name or key.".into()))
         }
     }
 
@@ -387,7 +381,7 @@ where
             // case 1 - non-valid json
             error!("Failed to parse payload: `{}` - `{:?}`", e, &bytes);
             // if we can't parse the json at all, bail as-is
-            Err(ShotgunError::from(e))
+            Err(Error::from(e))
         }
         Ok(v) => {
             if contains_errors(&v) {
@@ -401,79 +395,57 @@ where
                             .find(|ErrorObject { status, .. }| status == &Some(404));
 
                         if let Some(ErrorObject { detail, .. }) = maybe_not_found {
-                            Err(ShotgunError::NotFound(
-                                detail.clone().unwrap_or_else(|| "".into()),
-                            ))
+                            Err(Error::NotFound(detail.clone().unwrap_or_else(|| "".into())))
                         } else {
-                            Err(ShotgunError::ServerError(resp.errors))
+                            Err(Error::ServerError(resp.errors))
                         }
                     }
                     // also, a non-valid json/shape sub-case if the response doesn't
                     // look as expected.
-                    Err(err) => Err(ShotgunError::from(err)),
+                    Err(err) => Err(Error::from(err)),
                 }
             } else {
                 // case 3 - either we get the shape we want or we get an error
-                serde_json::from_value::<D>(v).map_err(ShotgunError::from)
+                serde_json::from_value::<D>(v).map_err(Error::from)
             }
         }
     }
 }
 
-#[derive(Debug, Fail)]
-pub enum ShotgunError {
-    #[fail(display = "Client Configuration Error: `{}`.", _0)]
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Client Configuration Error: `{0}`.")]
     BadClientConfig(String),
 
-    #[fail(
-        display = "Invalid Filters: expected `filters` key to be array or object; was neither."
-    )]
+    #[error("Invalid Filters: expected `filters` key to be array or object; was neither.")]
     InvalidFilters,
 
-    #[fail(display = "JSON Parse Error: `{}`.", _0)]
-    ClientError(#[fail(cause)] reqwest::Error),
+    #[error("Client Error: `{0}`.")]
+    ClientError(#[from] reqwest::Error),
 
-    #[fail(display = "JSON Parse Error: `{}`.", _0)]
-    JsonParse(#[fail(cause)] serde_json::Error),
+    #[error("JSON Parse Error: `{0}`.")]
+    JsonParse(#[from] serde_json::Error),
 
-    #[fail(display = "Entity Not Found - `{}`", _0)]
+    #[error("Entity Not Found - `{0}`")]
     NotFound(String),
 
-    #[fail(display = "Authentication Failed - `{}`", _0)]
-    Unauthorized(#[fail(cause)] reqwest::Error),
+    #[error("Authentication Failed - `{0}`")]
+    Unauthorized(#[source] reqwest::Error),
 
-    #[fail(display = "IO Error - `{}`", _0)]
-    IOError(#[fail(cause)] std::io::Error),
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
 
-    #[fail(display = "Unexpected Error - `{}`", _0)]
+    #[error("Unexpected Error - `{0}`")]
     Unexpected(String),
 
-    #[fail(display = "Server Error - `{:?}`", _0)]
+    #[error("Server Error - `{0:?}`")]
     ServerError(Vec<ErrorObject>),
 
-    #[fail(display = "Multipart uploads not supported by storage service.")]
+    #[error("Multipart uploads not supported by storage service.")]
     MultipartNotSupported,
 
-    #[fail(display = "File upload failed - `{}`", _0)]
+    #[error("File upload failed - `{0}`")]
     UploadError(String),
-}
-
-impl From<serde_json::Error> for ShotgunError {
-    fn from(e: serde_json::Error) -> Self {
-        ShotgunError::JsonParse(e)
-    }
-}
-
-impl From<reqwest::Error> for ShotgunError {
-    fn from(e: reqwest::Error) -> Self {
-        ShotgunError::ClientError(e)
-    }
-}
-
-impl From<std::io::Error> for ShotgunError {
-    fn from(e: std::io::Error) -> Self {
-        ShotgunError::IOError(e)
-    }
 }
 
 /// Response from Shotgun after a successful auth challenge.
@@ -552,7 +524,7 @@ mod mock_tests {
 
         // verify the error response was decoded as expected.
         match maybe_sess {
-            Err(ShotgunError::ServerError(errors)) => {
+            Err(Error::ServerError(errors)) => {
                 let details = &errors[0];
                 assert_eq!("xxxxx", details.id.as_ref().unwrap());
                 assert_eq!("Shotgun Server Error", details.title.as_ref().unwrap());

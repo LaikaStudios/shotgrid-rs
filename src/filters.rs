@@ -267,7 +267,7 @@ pub fn basic(filters: &[Filter]) -> FinalizedFilters {
 pub fn complex(root: ComplexFilter) -> crate::Result<FinalizedFilters> {
     match root {
         ComplexFilter::LogicalFilterOperator(_) => {}
-        _ => return Err(crate::ShotgunError::InvalidFilters),
+        _ => return Err(crate::Error::InvalidFilters),
     }
 
     Ok(FinalizedFilters::Complex(root))

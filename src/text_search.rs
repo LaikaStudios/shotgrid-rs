@@ -1,6 +1,6 @@
 use crate::filters::FinalizedFilters;
 use crate::types::PaginationParameter;
-use crate::{handle_response, Session, ShotgunError};
+use crate::{handle_response, Error, Session};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ fn get_entity_filters_mime(entity_filters: &EntityFilters) -> crate::Result<&'st
         let first = filters.next().unwrap().get_mime();
         for filter in filters {
             if first != filter.get_mime() {
-                return Err(ShotgunError::InvalidFilters);
+                return Err(Error::InvalidFilters);
             }
         }
         Ok(first)
@@ -176,7 +176,7 @@ mod tests {
 
         let result = get_entity_filters_mime(&filters);
         match result {
-            Err(ShotgunError::InvalidFilters) => assert!(true),
+            Err(Error::InvalidFilters) => assert!(true),
             _ => assert!(false, "Expected ShotgunError::InvalidFilters"),
         }
     }
