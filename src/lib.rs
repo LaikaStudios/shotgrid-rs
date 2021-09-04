@@ -485,6 +485,12 @@ pub struct TokenResponse {
     pub refresh_token: String,
 }
 
+#[cfg(doctest)]
+mod readme_tests {
+    use doc_comment::doctest;
+    doctest!("../README.md");
+}
+
 #[cfg(test)]
 mod mock_tests {
     use super::*;
