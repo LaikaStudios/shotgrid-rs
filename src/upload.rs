@@ -448,15 +448,14 @@ impl<'a> UploadReqBuilder<'a> {
             multipart_chunk_size,
         } = self;
 
-        if multipart {
-            if !(MAX_MULTIPART_CHUNK_SIZE >= multipart_chunk_size
+        if multipart
+            && !(MAX_MULTIPART_CHUNK_SIZE >= multipart_chunk_size
                 && multipart_chunk_size >= MIN_MULTIPART_CHUNK_SIZE)
-            {
-                return Err(ShotgunError::UploadError(format!(
-                    "Multipart chunk size must be between `{}` and `{}`",
-                    MIN_MULTIPART_CHUNK_SIZE, MAX_MULTIPART_CHUNK_SIZE
-                )));
-            }
+        {
+            return Err(ShotgunError::UploadError(format!(
+                "Multipart chunk size must be between `{}` and `{}`",
+                MIN_MULTIPART_CHUNK_SIZE, MAX_MULTIPART_CHUNK_SIZE
+            )));
         }
 
         let (sg, token) = session.get_sg().await?;
@@ -588,7 +587,7 @@ impl<'a> UploadReqBuilder<'a> {
                         // FIXME: figure out a way to share the details of the source error.
                         //  (ON) The Err type from the TryStream needs to be downcast
                         //  to something so we can look at it, I think.
-                        ShotgunError::UploadError(format!("File stream read error."))
+                        ShotgunError::UploadError(String::from("File stream read error."))
                     })? {
                         let chunk: bytes::Bytes = chunk.into();
                         body.extend_from_slice(chunk.as_ref());
@@ -629,7 +628,7 @@ impl<'a> UploadReqBuilder<'a> {
                     })?;
 
                 let maybe_etags: Result<Vec<String>> = Self::do_multipart_upload(
-                    &sg,
+                    sg,
                     &token,
                     file_content,
                     mimetype,
@@ -648,13 +647,8 @@ impl<'a> UploadReqBuilder<'a> {
 
                     Err(err) => {
                         log::error!("{}", err);
-                        Self::abort_multipart_upload(
-                            &sg,
-                            &token,
-                            &completion_url,
-                            &completion_body,
-                        )
-                        .await;
+                        Self::abort_multipart_upload(sg, &token, &completion_url, &completion_body)
+                            .await;
                         return Err(err); // Bail with the original cause
                     }
                 }
@@ -703,7 +697,7 @@ impl<'a> UploadReqBuilder<'a> {
             // If the upload was multipart and the completion request fails, we
             // abort the whole thing.
             Ok(resp) if multipart && !resp.status().is_success() => {
-                Self::abort_multipart_upload(&sg, &token, &completion_url, &completion_body).await;
+                Self::abort_multipart_upload(sg, &token, &completion_url, &completion_body).await;
 
                 return Err(ShotgunError::UploadError(format!(
                     "Got a bad status ({}) from completion endpoint. Upload aborted.",
@@ -713,7 +707,7 @@ impl<'a> UploadReqBuilder<'a> {
             // If there was a connection failure (or some other interruption to
             // prevent the completion request from happening, try to abort.
             Err(err) if multipart => {
-                Self::abort_multipart_upload(&sg, &token, &completion_url, &completion_body).await;
+                Self::abort_multipart_upload(sg, &token, &completion_url, &completion_body).await;
 
                 return Err(ShotgunError::UploadError(format!(
                     "Failed to complete multipart upload `{}`. Upload aborted.",
@@ -731,7 +725,7 @@ impl<'a> UploadReqBuilder<'a> {
             // The docs mention the completion status being 204 in the narrative
             // text, but the endpoint specs all say 201 is the good one.
             StatusCode::CREATED | StatusCode::NO_CONTENT => {} // Good
-            StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | _ => {
+            _ => {
                 // If the status is 400/401, the request was rejected for some
                 // expected-by-shotgun reason.
                 // If it's anything *other than 201/204*, the way to handle it

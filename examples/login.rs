@@ -41,7 +41,7 @@ async fn main() -> shotgun_rs::Result<()> {
         None,
         None,
     )
-        .expect("SG Client");
+    .expect("SG Client");
 
     let _sess = sg.authenticate_user(&username, &password).await?;
     println!("\nLogin Succeeded!");
