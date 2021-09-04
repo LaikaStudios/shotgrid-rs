@@ -279,7 +279,7 @@ impl Shotgun {
                 ("username", username),
                 ("password", password),
             ])
-                .await?,
+            .await?,
         ))
     }
 
@@ -289,7 +289,7 @@ impl Shotgun {
     /// `ShotgunError::BadClientConfig` if either is missing.
     pub async fn authenticate_script(&self) -> Result<Session<'_>> {
         if let (Some(script_name), Some(script_key)) =
-        (self.script_name.as_ref(), self.script_key.as_ref())
+            (self.script_name.as_ref(), self.script_key.as_ref())
         {
             Ok(Session::new(
                 self,
@@ -298,7 +298,7 @@ impl Shotgun {
                     ("client_id", &script_name),
                     ("client_secret", &script_key),
                 ])
-                    .await?,
+                .await?,
             ))
         } else {
             Err(ShotgunError::BadClientConfig(
@@ -314,7 +314,7 @@ impl Shotgun {
     /// `ShotgunError::BadClientConfig` if either is missing.
     pub async fn authenticate_script_as_user(&self, login: &str) -> Result<Session<'_>> {
         if let (Some(script_name), Some(script_key)) =
-        (self.script_name.as_ref(), self.script_key.as_ref())
+            (self.script_name.as_ref(), self.script_key.as_ref())
         {
             Ok(Session::new(
                 self,
@@ -324,7 +324,7 @@ impl Shotgun {
                     ("client_secret", &script_key),
                     ("scope", &format!("sudo_as_login:{}", login)),
                 ])
-                    .await?,
+                .await?,
             ))
         } else {
             Err(ShotgunError::BadClientConfig(
@@ -336,8 +336,8 @@ impl Shotgun {
     /// Provides version information about the Shotgun server and the REST API.
     /// Does not require authentication
     pub async fn info<D: 'static>(&self) -> Result<D>
-        where
-            D: DeserializeOwned,
+    where
+        D: DeserializeOwned,
     {
         let req = self
             .client
@@ -370,8 +370,8 @@ fn contains_errors(value: &Value) -> bool {
 /// Error with some details about what went wrong if your shape doesn't fit, or any of that other
 /// stuff happened.
 async fn handle_response<D>(resp: Response) -> Result<D>
-    where
-        D: DeserializeOwned,
+where
+    D: DeserializeOwned,
 {
     let bytes = resp.bytes().await?;
     // There are three (3) potential failure modes here:
@@ -426,7 +426,7 @@ pub enum ShotgunError {
     BadClientConfig(String),
 
     #[fail(
-    display = "Invalid Filters: expected `filters` key to be array or object; was neither."
+        display = "Invalid Filters: expected `filters` key to be array or object; was neither."
     )]
     InvalidFilters,
 
