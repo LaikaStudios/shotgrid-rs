@@ -5,40 +5,64 @@
 
 ## Usage
 
+## Usage
+
 The general pattern of usage starts with a `shotgun_rs::Shotgun` client.
 
-```rust
-let server = "https://my-shotgun.example.com".to_string();
-let script_name = "my-api-user";
-let script_key = "********";
-let sg = Shotgun::new(server, Some(script_name), Some(script_key))?;
+```rust,no_run
+use shotgun_rs::Shotgun;
+
+#[tokio::main]
+async fn main() -> shotgun_rs::Result<()> {
+    let server = "https://my-shotgun.example.com";
+    let script_name = "my-api-user";
+    let script_key = "********";
+    let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
+    // ...
+    Ok(())
+}
 ```
 
 Once your client is in hand, you'd use one of the authentication methods to
-get an `access_token`.
+get a `Session`.
 
-```rust
-// Authenticates using the script name and script key held by the client.
-let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+```rust,no_run
+use shotgun_rs::Shotgun;
+
+#[tokio::main]
+async fn main() -> shotgun_rs::Result<()> {
+    let server = "https://my-shotgun.example.com";
+    let script_name = "my-api-user";
+    let script_key = "********";
+    let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
+    // Authenticates using the script name and script key held by the client.
+    let session = sg.authenticate_script().await?;
+    // ...
+    Ok(())
+}
 ```
 
-From there, you can pass that access token around to the various query methods.
-For operations where the schema of the response is flexible (based on the
+From there, you can use that `Session` to invoke the various query
+methods, either to use Shotgun's rich filter API to find
+records, or to create/update records.
+
+For operations where the schema of the response is *flexible* (based on the
 entity type and return fields specified), we use generics to allow the
 caller to unpack the response into the type of their choosing. The type just
-needs to implement [serde]'s `Deserialize` trait. A number of structs are
-provided (ex: `TokenResponse`) to cover responses that are pretty much the
-same for everybody.
-Others structs are generic over types deeper in the data structure.
-For example, `ResourceArrayResponse<R, L>` is generic over `R`
-(the resource) which is the items in the array portion of the response, and
-`L` which is the type for the response's "links" key).
+needs to implement [serde]'s `Deserialize` trait.
 
-```rust
+A number of structs that are generic over types deeper in the data structure
+are provided.
+For example, `ResourceArrayResponse` is generic over `R` (the resource) which
+is the items in the array portion of the response, and `L` which is the type for
+the response's "links" key).
+
+```rust,no_run
 use serde_derive::Deserialize;
-use serde_json::json;
 use shotgun_rs::types::{PaginationLinks, ResourceArrayResponse, SelfLink};
-use shotgun_rs::{Shotgun, TokenResponse};
+use shotgun_rs::Shotgun;
+use shotgun_rs::filters;
+
 
 /// This struct should match the return fields specified for the search.
 #[derive(Debug, Clone, Deserialize)]
@@ -55,30 +79,34 @@ struct Project {
     links: Option<SelfLink>,
 }
 
+
 #[tokio::main]
 async fn main() -> shotgun_rs::Result<()> {
+
     let server = "https://my-shotgun.example.com";
     let script_name = "my-api-user";
     let script_key = "********";
 
     let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
 
-    let TokenResponse { access_token, .. } = sg.authenticate_script().await?;
+    let session = sg.authenticate_script().await?;
 
     let return_fields = ["id", "code", "name"].join(",");
 
     // Using type ascription (or a turbofish), we tell search() how to
     // deserialize the response.
-    let resp: ResourceArrayResponse<Project, PaginationLinks> = sg
-        .search(&access_token, "Project", &return_fields, &json!([]))?
+    let resp: ResourceArrayResponse<Project, PaginationLinks> = session
+        .search("Project", &return_fields, &filters::empty())
         .size(Some(3))
         .execute()
         .await?;
 
     let items = resp.data.unwrap_or_default();
+
     for project in items {
         println!("{:?}", project);
     }
+
     Ok(())
 }
 ```
@@ -103,7 +131,7 @@ for crates and modules.
 
 You can run the basic unit test suite via:
 
-```
+```text
 $ cargo test
 ```
 
@@ -111,7 +139,7 @@ In addition to the unit tests, there is a set of end-to-end tests (ie, requires
 a live Shotgun server) which can be run by enabling the `integration-tests`
 feature:
 
-```
+```text
 $ cargo test --features integration-tests
 ```
 
