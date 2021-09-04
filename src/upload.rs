@@ -30,7 +30,7 @@
 //!
 //! <https://developer.shotgunsoftware.com/rest-api/#shotgun-rest-api-Uploading-and-Downloading-Files>
 use crate::types::{Entity, NextUploadPartResponse, UploadInfoResponse, UploadResponse};
-use crate::{handle_response, Result, Session, Shotgun, ShotgunError};
+use crate::{handle_response, Error, Result, Session, Shotgun};
 use futures::stream::poll_fn;
 use futures::task::Poll;
 use futures::{TryStream, TryStreamExt};
@@ -246,7 +246,7 @@ impl<'a> UploadReqBuilder<'a> {
                     // FIXME: figure out a way to share the details of the source error.
                     //  (ON) The Err type from the TryStream needs to be downcast
                     //  to something so we can look at it, I think.
-                    ShotgunError::UploadError(String::from("File stream read error."))
+                    Error::UploadError(String::from("File stream read error."))
                 })? {
                     None => break,
                     Some(chunk) => {
@@ -307,7 +307,7 @@ impl<'a> UploadReqBuilder<'a> {
                     } else {
                         format!("Failed to upload chunk. Cause: `{}`", e)
                     };
-                    ShotgunError::UploadError(reason)
+                    Error::UploadError(reason)
                 })?;
                 log::debug!("Sent part {}, len={}", part_count, content_len);
                 ret
@@ -317,7 +317,7 @@ impl<'a> UploadReqBuilder<'a> {
                 .headers()
                 .get(reqwest::header::ETAG)
                 .ok_or_else(|| {
-                    ShotgunError::UploadError(String::from(
+                    Error::UploadError(String::from(
                         "Multipart upload response missing ETag header.",
                     ))
                 })?;
@@ -348,10 +348,7 @@ impl<'a> UploadReqBuilder<'a> {
             )
             .await
             .map_err(|e| {
-                ShotgunError::UploadError(format!(
-                    "Failed to get next upload info. Cause: `{:?}`.",
-                    e,
-                ))
+                Error::UploadError(format!("Failed to get next upload info. Cause: `{:?}`.", e,))
             })?;
 
             get_next_part = next
@@ -359,7 +356,7 @@ impl<'a> UploadReqBuilder<'a> {
                 .as_ref()
                 .and_then(|links| links.get_next_part.clone())
                 .ok_or_else(|| {
-                    ShotgunError::UploadError(String::from(
+                    Error::UploadError(String::from(
                         "Get Next Part response missing get_next_part key.",
                     ))
                 })?;
@@ -368,9 +365,7 @@ impl<'a> UploadReqBuilder<'a> {
                 .as_ref()
                 .and_then(|links| links.upload.clone())
                 .ok_or_else(|| {
-                    ShotgunError::UploadError(String::from(
-                        "Get Next Part response missing upload key.",
-                    ))
+                    Error::UploadError(String::from("Get Next Part response missing upload key."))
                 })?;
         }
 
@@ -452,7 +447,7 @@ impl<'a> UploadReqBuilder<'a> {
             && !(MAX_MULTIPART_CHUNK_SIZE >= multipart_chunk_size
                 && multipart_chunk_size >= MIN_MULTIPART_CHUNK_SIZE)
         {
-            return Err(ShotgunError::UploadError(format!(
+            return Err(Error::UploadError(format!(
                 "Multipart chunk size must be between `{}` and `{}`",
                 MIN_MULTIPART_CHUNK_SIZE, MAX_MULTIPART_CHUNK_SIZE
             )));
@@ -494,7 +489,7 @@ impl<'a> UploadReqBuilder<'a> {
         // We need to merge the data from the initial "upload info" request
         // with the fields from the actual upload.
         let upload_info = init_resp.data.ok_or_else(|| {
-            ShotgunError::UploadError(String::from("Upload info missing in server response."))
+            Error::UploadError(String::from("Upload info missing in server response."))
         })?;
 
         let upload_type: UploadType = upload_info
@@ -502,7 +497,7 @@ impl<'a> UploadReqBuilder<'a> {
             .as_ref()
             .map(|s| s.parse())
             .unwrap_or_else(|| {
-                Err(ShotgunError::UploadError(String::from(
+                Err(Error::UploadError(String::from(
                     "Upload type missing from server response.",
                 )))
             })?;
@@ -512,7 +507,7 @@ impl<'a> UploadReqBuilder<'a> {
             .as_ref()
             .map(|s| s.parse())
             .unwrap_or_else(|| {
-                Err(ShotgunError::UploadError(String::from(
+                Err(Error::UploadError(String::from(
                     "Storage service missing from server response.",
                 )))
             })?;
@@ -522,7 +517,7 @@ impl<'a> UploadReqBuilder<'a> {
             .as_ref()
             .and_then(|links| links.upload.as_ref())
             .ok_or_else(|| {
-                ShotgunError::UploadError(String::from("Upload URL missing in server response."))
+                Error::UploadError(String::from("Upload URL missing in server response."))
             })?;
 
         let completion_url = format!(
@@ -533,9 +528,7 @@ impl<'a> UploadReqBuilder<'a> {
                 .as_ref()
                 .and_then(|links| links.complete_upload.as_ref())
                 .ok_or_else(|| {
-                    ShotgunError::UploadError(String::from(
-                        "Completion URL missing in server response.",
-                    ))
+                    Error::UploadError(String::from("Completion URL missing in server response."))
                 })?
         );
 
@@ -564,7 +557,7 @@ impl<'a> UploadReqBuilder<'a> {
                 let upload_resp: UploadResponse = handle_response(upload_req.send().await?).await?;
 
                 let upload_data = upload_resp.data.ok_or_else(|| {
-                    ShotgunError::UploadError(String::from(
+                    Error::UploadError(String::from(
                         "Upload Response data missing in server response.",
                     ))
                 })?;
@@ -587,7 +580,7 @@ impl<'a> UploadReqBuilder<'a> {
                         // FIXME: figure out a way to share the details of the source error.
                         //  (ON) The Err type from the TryStream needs to be downcast
                         //  to something so we can look at it, I think.
-                        ShotgunError::UploadError(String::from("File stream read error."))
+                        Error::UploadError(String::from("File stream read error."))
                     })? {
                         let chunk: bytes::Bytes = chunk.into();
                         body.extend_from_slice(chunk.as_ref());
@@ -612,7 +605,7 @@ impl<'a> UploadReqBuilder<'a> {
                 // This should be a 200, but just in case AWS change their mind
                 // about signalling, we'll look for any 2xx.
                 if !upload_resp.status().is_success() {
-                    return Err(ShotgunError::UploadError(String::from("S3 upload failed.")));
+                    return Err(Error::UploadError(String::from("S3 upload failed.")));
                 }
             }
             (StorageService::S3, true) => {
@@ -622,9 +615,7 @@ impl<'a> UploadReqBuilder<'a> {
                     .as_ref()
                     .and_then(|links| links.get_next_part.clone())
                     .ok_or_else(|| {
-                        ShotgunError::UploadError(String::from(
-                            "Init response missing get_next_part key.",
-                        ))
+                        Error::UploadError(String::from("Init response missing get_next_part key."))
                     })?;
 
                 let maybe_etags: Result<Vec<String>> = Self::do_multipart_upload(
@@ -658,7 +649,7 @@ impl<'a> UploadReqBuilder<'a> {
                 // In truth, the very first request made to initiate the upload
                 // should have been rejected with a 400 so if we're here without
                 // S3 storage being active, there's been some programmer error.
-                return Err(ShotgunError::MultipartNotSupported);
+                return Err(Error::MultipartNotSupported);
             }
         }
 
@@ -699,7 +690,7 @@ impl<'a> UploadReqBuilder<'a> {
             Ok(resp) if multipart && !resp.status().is_success() => {
                 Self::abort_multipart_upload(sg, &token, &completion_url, &completion_body).await;
 
-                return Err(ShotgunError::UploadError(format!(
+                return Err(Error::UploadError(format!(
                     "Got a bad status ({}) from completion endpoint. Upload aborted.",
                     resp.status()
                 )));
@@ -709,7 +700,7 @@ impl<'a> UploadReqBuilder<'a> {
             Err(err) if multipart => {
                 Self::abort_multipart_upload(sg, &token, &completion_url, &completion_body).await;
 
-                return Err(ShotgunError::UploadError(format!(
+                return Err(Error::UploadError(format!(
                     "Failed to complete multipart upload `{}`. Upload aborted.",
                     err
                 )));
@@ -734,7 +725,7 @@ impl<'a> UploadReqBuilder<'a> {
                 let _ = handle_response::<Value>(completion_resp).await?;
                 // If we didn't get an `Err` from `handle_response()`, then what
                 // on earth is happening?!
-                return Err(ShotgunError::UploadError(format!(
+                return Err(Error::UploadError(format!(
                     "Unexpected status `{}` for upload complete request.",
                     completion_status
                 )));
@@ -752,13 +743,13 @@ enum StorageService {
 }
 
 impl FromStr for StorageService {
-    type Err = ShotgunError;
+    type Err = Error;
 
     fn from_str(s: &str) -> crate::Result<Self> {
         match s {
             "sg" => Ok(StorageService::Shotgun),
             "s3" => Ok(StorageService::S3),
-            other => Err(ShotgunError::UploadError(format!(
+            other => Err(Error::UploadError(format!(
                 "Unexpected storage service `{:?}`.",
                 other,
             ))),
@@ -772,13 +763,13 @@ enum UploadType {
 }
 
 impl FromStr for UploadType {
-    type Err = ShotgunError;
+    type Err = Error;
 
     fn from_str(s: &str) -> crate::Result<Self> {
         match s {
             "Attachment" => Ok(UploadType::Attachment),
             "Thumbnail" => Ok(UploadType::Thumbnail),
-            other => Err(ShotgunError::UploadError(format!(
+            other => Err(Error::UploadError(format!(
                 "Unexpected upload type `{:?}`.",
                 other,
             ))),
@@ -1057,7 +1048,7 @@ mod mock_tests {
             .send(Cursor::new(file_content))
             .await
         {
-            Err(ShotgunError::ServerError(errors)) => assert_eq!(errors[0].status, Some(400)),
+            Err(Error::ServerError(errors)) => assert_eq!(errors[0].status, Some(400)),
             other => {
                 println!("{:?}", other);
                 unreachable!()
@@ -1124,7 +1115,7 @@ mod mock_tests {
             .send(Cursor::new(file_content))
             .await
         {
-            Err(ShotgunError::ServerError(errors)) => {
+            Err(Error::ServerError(errors)) => {
                 assert_eq!(errors[0].status, Some(400));
                 assert!(errors[0]
                     .source
@@ -1356,8 +1347,7 @@ mod mock_tests {
             .send(Cursor::new(file_content))
             .await
         {
-            Err(ShotgunError::UploadError(msg))
-                if msg.contains("Failed to get next upload info") => {}
+            Err(Error::UploadError(msg)) if msg.contains("Failed to get next upload info") => {}
             other => {
                 println!("{:?}", other);
                 unreachable!()
@@ -1464,7 +1454,7 @@ mod mock_tests {
             .send(Cursor::new(file_content))
             .await
         {
-            Err(ShotgunError::UploadError(msg)) if msg.contains("Failed to upload chunk") => {}
+            Err(Error::UploadError(msg)) if msg.contains("Failed to upload chunk") => {}
             other => {
                 println!("{:?}", other);
                 unreachable!()
@@ -1585,7 +1575,7 @@ mod mock_tests {
             .send(Cursor::new(file_content))
             .await
         {
-            Err(ShotgunError::UploadError(msg)) if msg.contains("aborted") => {}
+            Err(Error::UploadError(msg)) if msg.contains("aborted") => {}
             other => {
                 println!("{:?}", other);
                 unreachable!()
@@ -1713,7 +1703,7 @@ mod mock_tests {
             .send(Cursor::new(file_content))
             .await
         {
-            Err(ShotgunError::UploadError(msg)) if msg.contains("aborted") => {}
+            Err(Error::UploadError(msg)) if msg.contains("aborted") => {}
             other => {
                 println!("{:?}", other);
                 unreachable!()
@@ -1756,7 +1746,7 @@ mod mock_tests {
             .send(Cursor::new(file_content))
             .await
         {
-            Err(ShotgunError::UploadError(msg)) if msg.contains("chunk size must be between") => {}
+            Err(Error::UploadError(msg)) if msg.contains("chunk size must be between") => {}
             other => {
                 println!("{:?}", other);
                 unreachable!()
@@ -1799,7 +1789,7 @@ mod mock_tests {
             .send(Cursor::new(file_content))
             .await
         {
-            Err(ShotgunError::UploadError(msg)) if msg.contains("chunk size must be between") => {}
+            Err(Error::UploadError(msg)) if msg.contains("chunk size must be between") => {}
             other => {
                 println!("{:?}", other);
                 unreachable!()

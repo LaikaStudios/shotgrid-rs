@@ -2,7 +2,7 @@ use actix_multipart::Multipart;
 use actix_web::{middleware, post, web, App, HttpResponse, HttpServer, Responder};
 use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
-use shotgun_rs::{Shotgun, ShotgunError};
+use shotgun_rs::{Error, Shotgun};
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -169,7 +169,7 @@ fn do_upload(
             .await
             .map_err(|e| {
                 log::error!("{}", e);
-                ShotgunError::Unexpected(String::from("Upload failed??"))
+                Error::Unexpected(String::from("Upload failed??"))
             })
             .map_err(|e| format!("{:?}", e))?;
         log::info!("Upload task end.");

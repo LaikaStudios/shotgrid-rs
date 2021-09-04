@@ -7,6 +7,7 @@
   Instead it takes separate `data_type` and `properties` parameters.
 - `Shotgun::schema_field_update()` no longer accepts an `UpdateFieldRequest`.
   Instead it takes separate `properties` and `project_id` parameters.
+- `ShotgunError` was renamed `Error`.
 
 #### Sessions
 
