@@ -295,8 +295,8 @@ impl Shotgun {
                 self,
                 self.authenticate(&[
                     ("grant_type", "client_credentials"),
-                    ("client_id", &script_name),
-                    ("client_secret", &script_key),
+                    ("client_id", script_name),
+                    ("client_secret", script_key),
                 ])
                 .await?,
             ))
@@ -320,8 +320,8 @@ impl Shotgun {
                 self,
                 self.authenticate(&[
                     ("grant_type", "client_credentials"),
-                    ("client_id", &script_name),
-                    ("client_secret", &script_key),
+                    ("client_id", script_name),
+                    ("client_secret", script_key),
                     ("scope", &format!("sudo_as_login:{}", login)),
                 ])
                 .await?,
@@ -352,7 +352,7 @@ impl Shotgun {
 fn contains_errors(value: &Value) -> bool {
     value
         .as_object()
-        .and_then(|obj| Some(obj.contains_key("errors")))
+        .map(|obj| obj.contains_key("errors"))
         .unwrap_or(false)
 }
 
