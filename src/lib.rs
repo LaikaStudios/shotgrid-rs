@@ -158,10 +158,6 @@ extern crate serde_derive;
 use crate::types::{ErrorObject, ErrorResponse};
 use log::{debug, error, trace};
 use reqwest::Response;
-/// Re-export to provide access in case callers need to manually configure the
-/// Client via `Shotgun::with_client()`.
-// FIXME: re-export the whole reqwest crate.
-pub use reqwest::{Certificate, Client};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 mod entity_relationship_read;
@@ -181,9 +177,17 @@ pub use upload::{UploadReqBuilder, MAX_MULTIPART_CHUNK_SIZE, MIN_MULTIPART_CHUNK
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub mod transport {
+    /// Re-export to provide access in case callers need to manually configure the
+    /// Client via `Shotgun::with_client()`.
+    pub use reqwest;
+}
+
+type HttpClient = transport::reqwest::Client;
+
 /// Get a default http client with ca certs added to it if specified via env var.
-fn get_client() -> Result<Client> {
-    let builder = Client::builder();
+fn get_client() -> Result<HttpClient> {
+    let builder = HttpClient::builder();
 
     let builder = if let Ok(fp) = env::var("CA_BUNDLE") {
         debug!("Using ca bundle from: `{}`", fp);
@@ -192,8 +196,8 @@ fn get_client() -> Result<Client> {
             .map_err(|e| Error::BadClientConfig(e.to_string()))?
             .read_to_end(&mut buf)
             .map_err(|e| Error::BadClientConfig(e.to_string()))?;
-        let cert =
-            Certificate::from_pem(&buf).map_err(|e| Error::BadClientConfig(e.to_string()))?;
+        let cert = transport::reqwest::Certificate::from_pem(&buf)
+            .map_err(|e| Error::BadClientConfig(e.to_string()))?;
         builder.add_root_certificate(cert)
     } else {
         builder
@@ -202,13 +206,12 @@ fn get_client() -> Result<Client> {
         .build()
         .map_err(|e| Error::BadClientConfig(e.to_string()))
 }
-
 #[derive(Clone, Debug)]
 pub struct Shotgun {
     /// Base url for the shotgun server.
     sg_server: String,
     /// HTTP Client used internally to make requests to shotgun.
-    client: Client,
+    client: HttpClient,
     /// API User (aka "script") name, used to generate API Tokens.
     script_name: Option<String>,
     /// API User (aka "script") secret key, used to generate API Tokens.
@@ -240,13 +243,17 @@ impl Shotgun {
 
     /// Create a new Shotgun API Client, but configure the HTTP client yourself.
     ///
-    /// This may be the option for you if you need to adjust resource limits, or timeouts, etc on
-    /// the HTTP client itself.
+    /// This may be the option for you if you need to adjust resource limits, or
+    /// timeouts, etc on the HTTP client itself.
+    ///
+    /// For your convenience, the [`transport::reqwest`] module has a re-export
+    /// of the entire [`reqwest`] crate so you have access to all the types
+    /// required for configuring the client.
     pub fn with_client(
         sg_server: String,
         script_name: Option<&str>,
         script_key: Option<&str>,
-        client: Client,
+        client: HttpClient,
     ) -> Self {
         Self {
             sg_server,
