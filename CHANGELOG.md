@@ -4,10 +4,12 @@
 ### Breaking Changes
 
 - `Shotgun::schema_field_create()` no longer accepts a `CreateFieldRequest`.
-  Instead it takes separate `data_type` and `properties` parameters.
+  Instead, it takes separate `data_type` and `properties` parameters.
 - `Shotgun::schema_field_update()` no longer accepts an `UpdateFieldRequest`.
-  Instead it takes separate `properties` and `project_id` parameters.
+  Instead, it takes separate `properties` and `project_id` parameters.
 - `ShotgunError` was renamed `Error`.
+- `Client` and `Certificate` are no longer re-exported from the crate root.
+  Instead, the entire `reqwest` crate is re-exported under the `transport` module.
 
 #### Sessions
 
