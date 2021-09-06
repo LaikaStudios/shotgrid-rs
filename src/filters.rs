@@ -4,7 +4,7 @@
 //! Each of these functions will ultimately produce a [`FinalizedFilters`], which
 //! can be then handed off to a query method.
 //!
-//! Filters play a role in a number of places in the Shotgun API including:
+//! Filters play a role in a number of places in the ShotGrid API including:
 //!
 //! - [`Session::search()`](`crate::session::Session::search()`)
 //! - [`Session::summarize()`](`crate::session::Session::summarize()`)
@@ -20,7 +20,7 @@
 //! > for [`Field`] (the return of the [`field()`] function).
 //!
 //! ```
-//! use shotgun_rs::filters::{field, EntityRef};
+//! use shotgrid_rs::filters::{field, EntityRef};
 //!
 //! let project = field("project").is(EntityRef::new("Project", 123));
 //! let created_by = field("created_by.HumanUser.id").in_(&[456, 789]);
@@ -36,13 +36,13 @@
 //! ## The Problem with `None`
 //!
 //! Any place where a [`FieldValue`] is accepted, it's expected you'll also be
-//! able to pass a `None`, per the Shotgun Python API's conventions.
+//! able to pass a `None`, per the ShotGrid Python API's conventions.
 //!
 //! In Rust, this can cause *type inference problems* in cases where you want to
 //! write filters in the same style as you might with the Python API:
 //!
 //! ```compile_fail
-//! use shotgun_rs::filters::field;
+//! use shotgrid_rs::filters::field;
 //!
 //! field("due_date").is(None); // Won't work!
 //! field("entity.Asset.id").in_(&[1, 2, 3, None]); // Also won't work!
@@ -91,7 +91,7 @@
 //! that can convert to [`FieldValue`] will work):
 //!
 //! ```
-//! use shotgun_rs::filters::field;
+//! use shotgrid_rs::filters::field;
 //!
 //! // Arbitrarily say the Option is T=&str.
 //! field("due_date").is(Option::<&str>::None);
@@ -101,7 +101,7 @@
 //! value, *not framed in terms of some other type* (like it is in Python).
 //!
 //! ```
-//! use shotgun_rs::filters::{field, FieldValue};
+//! use shotgrid_rs::filters::{field, FieldValue};
 //!
 //! field("due_date").is(FieldValue::None);
 //! ```
@@ -113,7 +113,7 @@
 //! and also there's an Option in there*), you can rewrite in terms of `Option<i32>`:
 //!
 //! ```
-//! use shotgun_rs::filters::field;
+//! use shotgrid_rs::filters::field;
 //!
 //! // All items are Option<i32>, so it works!
 //! field("entity.Asset.id").in_(&[Some(1), Some(2), Some(3), None]);
@@ -125,7 +125,7 @@
 //! filters* created using the [`field()`] function.
 //!
 //! ```
-//! use shotgun_rs::filters::{self, field, EntityRef};
+//! use shotgrid_rs::filters::{self, field, EntityRef};
 //!
 //! let task_filters = filters::basic(&[
 //!     field("due_date").in_calendar_month(0),
@@ -157,7 +157,7 @@
 //! [`field()`].
 //!
 //! ```
-//! use shotgun_rs::filters::{self, field, FieldValue};
+//! use shotgrid_rs::filters::{self, field, FieldValue};
 //!
 //! // Find tasks that either have
 //! // - a due date but no assignee, or
@@ -201,7 +201,7 @@
 //! `.into()`.
 //!
 //! ```
-//! use shotgun_rs::filters::{self, field};
+//! use shotgrid_rs::filters::{self, field};
 //!
 //! let approved_ensemble = filters::complex(
 //!     filters::and(&[
@@ -224,10 +224,10 @@
 //!
 //! # See Also
 //!
-//! For more on filtering Shotgun queries:
+//! For more on filtering ShotGrid queries:
 //!
-//! - <https://developer.shotgunsoftware.com/rest-api/#filtering>
-//! - <https://developer.shotgunsoftware.com/python-api/reference.html#filter-syntax>
+//! - <https://developer.shotgridsoftware.com/rest-api/#filtering>
+//! - <https://developer.shotgridsoftware.com/python-api/reference.html#filter-syntax>
 
 use serde::{
     ser::{SerializeMap, SerializeSeq},
@@ -352,7 +352,7 @@ impl Serialize for LogicalFilterOperator {
 /// This is useful for writing filters for multi-entity link fields.
 ///
 /// ```
-/// use shotgun_rs::filters::{self, field, EntityRef};
+/// use shotgrid_rs::filters::{self, field, EntityRef};
 ///
 /// field("entity").in_(&[
 ///     EntityRef::new("Shot", 123),

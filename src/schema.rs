@@ -10,7 +10,7 @@ pub struct SchemaFieldProperties {
     pub summary_default: Option<SchemaResponseValue>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSschemafieldrecord>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSschemafieldrecord>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SchemaFieldRecord {
     pub custom_metadata: Option<SchemaResponseValue>,
@@ -26,27 +26,27 @@ pub struct SchemaFieldRecord {
     pub visible: Option<SchemaResponseValue>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSschemafieldresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSschemafieldresponse>
 pub type SchemaFieldResponse = SingleResourceResponse<SchemaFieldRecord, SelfLink>;
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSschemafieldsresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSschemafieldsresponse>
 pub type SchemaFieldsResponse =
     SingleResourceResponse<HashMap<String, SchemaFieldRecord>, SelfLink>;
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#schemaschemaentityrecord>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#schemaschemaentityrecord>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SchemaEntityRecord {
     pub name: Option<SchemaResponseValue>,
     pub visible: Option<SchemaResponseValue>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSschemaentityresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSschemaentityresponse>
 pub type SchemaEntityResponse = SingleResourceResponse<SchemaEntityRecord, SelfLink>;
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSschemaentitiesresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSschemaentitiesresponse>
 pub type SchemaEntitiesResponse = ResourceMapResponse<SchemaEntityRecord, SelfLink>;
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#schemaschemaresponsevalue>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#schemaschemaresponsevalue>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SchemaResponseValue {
     /// Can be a string or a boolean
@@ -97,14 +97,14 @@ pub enum FieldDataType {
     Calculated,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocScreatefieldrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocScreatefieldrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CreateFieldRequest {
     pub data_type: FieldDataType,
     pub properties: Vec<CreateUpdateFieldProperty>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocScreateupdatefieldproperty>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocScreateupdatefieldproperty>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CreateUpdateFieldProperty {
     pub property_name: String,
@@ -137,7 +137,7 @@ where
     }
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSupdatefieldrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSupdatefieldrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UpdateFieldRequest {
     pub properties: Vec<CreateUpdateFieldProperty>,

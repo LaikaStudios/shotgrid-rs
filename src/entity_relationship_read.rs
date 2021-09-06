@@ -42,7 +42,7 @@ impl<'a> EntityRelationshipReadReqBuilder<'a> {
     {
         let (sg, token) = self.session.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/entity/{}/{}/relationships/{}",
                 sg.sg_server, self.entity, self.entity_id, self.related_field

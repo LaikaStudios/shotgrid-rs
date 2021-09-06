@@ -2,7 +2,7 @@ use actix_multipart::Multipart;
 use actix_web::{middleware, post, web, App, HttpResponse, HttpServer, Responder};
 use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
-use shotgun_rs::{Error, Shotgun};
+use shotgrid_rs::{Client, Error};
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -13,13 +13,13 @@ struct Settings {
 }
 
 impl Settings {
-    pub(crate) fn sg(&self) -> Shotgun {
-        Shotgun::new(
+    pub(crate) fn sg(&self) -> Client {
+        Client::new(
             self.server.clone(),
             Some(self.script_name.as_str()),
             Some(self.script_key.as_str()),
         )
-        .expect("Shotgun")
+        .expect("sg client")
     }
 }
 
@@ -77,7 +77,7 @@ async fn upload(
 
         match disposition_name {
             "files" => {
-                // XXX: If there is no filename, Shotgun-rs can't infer the mime type
+                // XXX: If there is no filename, shotgrid-rs can't infer the mime type
                 let filename = match content_disposition.get_filename() {
                     Some(name) => name,
                     None => return HttpResponse::InternalServerError().body("Filename is missing"),
@@ -137,7 +137,7 @@ type AnyResult<T> = std::result::Result<T, Box<dyn std::error::Error + Sync + Se
 /// Returns a handle for the background task, and a channel `Sender` used to
 /// stream bytes into the upload request's body.
 fn do_upload(
-    sg: Shotgun,
+    sg: Client,
     entity_type: String,
     entity_id: i32,
     field_name: String,
@@ -161,8 +161,8 @@ fn do_upload(
         let sess = sg.authenticate_script().await.unwrap();
 
         sess.upload(&entity_type, entity_id, Some(&field_name), &filename)
-            // N.B. Multipart and chunk size will only work when your Shotgun is
-            // configured to use S3 storage.
+            // Multipart and chunk size will only work when your ShotGrid
+            // server is configured to use S3 storage.
             // .multipart(true)
             // .chunk_size(30 * 1024 * 1024)
             .send_stream(rx) // The request body is built from the receiver end of the channel.

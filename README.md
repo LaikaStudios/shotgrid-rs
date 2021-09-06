@@ -1,23 +1,21 @@
-# shotgun-rs
+# shotgrid-rs
 
-`shotgun-rs` is a REST API client for [Autodesk Shotgun][shotgun] built with
-[reqwest] and [serde_json].
-
-## Usage
+`shotgrid-rs` is a REST API client for [Autodesk ShotGrid][shotgrid] (formerly
+_Shotgun_) built with [reqwest] and [serde_json].
 
 ## Usage
 
-The general pattern of usage starts with a `shotgun_rs::Shotgun` client.
+The general pattern of usage starts with a `shotgrid_rs::Client`.
 
 ```rust,no_run
-use shotgun_rs::Shotgun;
+use shotgrid_rs::Client;
 
 #[tokio::main]
-async fn main() -> shotgun_rs::Result<()> {
-    let server = "https://my-shotgun.example.com";
+async fn main() -> shotgrid_rs::Result<()> {
+    let server = "https://my-shotgrid.example.com";
     let script_name = "my-api-user";
     let script_key = "********";
-    let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
+    let sg = Client::new(server.to_string(), Some(script_name), Some(script_key))?;
     // ...
     Ok(())
 }
@@ -27,14 +25,14 @@ Once your client is in hand, you'd use one of the authentication methods to
 get a `Session`.
 
 ```rust,no_run
-use shotgun_rs::Shotgun;
+use shotgrid_rs::Client;
 
 #[tokio::main]
-async fn main() -> shotgun_rs::Result<()> {
-    let server = "https://my-shotgun.example.com";
+async fn main() -> shotgrid_rs::Result<()> {
+    let server = "https://my-shotgrid.example.com";
     let script_name = "my-api-user";
     let script_key = "********";
-    let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
+    let sg = Client::new(server.to_string(), Some(script_name), Some(script_key))?;
     // Authenticates using the script name and script key held by the client.
     let session = sg.authenticate_script().await?;
     // ...
@@ -43,7 +41,7 @@ async fn main() -> shotgun_rs::Result<()> {
 ```
 
 From there, you can use that `Session` to invoke the various query
-methods, either to use Shotgun's rich filter API to find
+methods, either to use ShotGrid's rich filter API to find
 records, or to create/update records.
 
 For operations where the schema of the response is *flexible* (based on the
@@ -59,9 +57,9 @@ the response's "links" key).
 
 ```rust,no_run
 use serde_derive::Deserialize;
-use shotgun_rs::types::{PaginationLinks, ResourceArrayResponse, SelfLink};
-use shotgun_rs::Shotgun;
-use shotgun_rs::filters;
+use shotgrid_rs::types::{PaginationLinks, ResourceArrayResponse, SelfLink};
+use shotgrid_rs::Client;
+use shotgrid_rs::filters;
 
 
 /// This struct should match the return fields specified for the search.
@@ -81,13 +79,13 @@ struct Project {
 
 
 #[tokio::main]
-async fn main() -> shotgun_rs::Result<()> {
+async fn main() -> shotgrid_rs::Result<()> {
 
-    let server = "https://my-shotgun.example.com";
+    let server = "https://my-shotgrid.example.com";
     let script_name = "my-api-user";
     let script_key = "********";
 
-    let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
+    let sg = Client::new(server.to_string(), Some(script_name), Some(script_key))?;
 
     let session = sg.authenticate_script().await?;
 
@@ -117,7 +115,7 @@ the value yourself.
 
 ## Logging
 
-The `shotgun_rs` crate offers some logging, though most of it relates to the
+The `shotgrid_rs` crate offers some logging, though most of it relates to the
 internals of the library itself.
 
 If you're interested in logging the HTTP-transport layer, since we're using
@@ -136,7 +134,7 @@ $ cargo test
 ```
 
 In addition to the unit tests, there is a set of end-to-end tests (ie, requires
-a live Shotgun server) which can be run by enabling the `integration-tests`
+a live ShotGrid server) which can be run by enabling the `integration-tests`
 feature:
 
 ```text
@@ -145,7 +143,7 @@ $ cargo test --features integration-tests
 
 The integration tests require a set of environment vars to be set in order to pass:
 
-- `TEST_SG_SERVER`, the shotgun server to connect to.
+- `TEST_SG_SERVER`, the ShotGrid server to connect to.
 - `TEST_SG_SCRIPT_NAME`, the name of an ApiUser to connect as.
 - `TEST_SG_SCRIPT_KEY`, the API key to go with the name.
 - `TEST_SG_HUMAN_USER_LOGIN`, certain tests require a `HumanUser` so this is
@@ -155,9 +153,9 @@ The integration tests require a set of environment vars to be set in order to pa
 At the time of writing, these tests read but don't write. This may change in the
 future so please take care when setting these vars.
 
-If possible you may want to isolate your test runs to a secondary shotgun server
-(if you have a spare for development), or at the very least select a "test"
-project.
+If possible you may want to isolate your test runs to a secondary ShotGrid
+server (if you have a spare for development), or at the very least select a
+"test" project.
 
 ## License
 
@@ -176,7 +174,7 @@ Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
 
-[shotgun]: https://www.shotgunsoftware.com/
+[shotgrid]: https://www.shotgridsoftware.com/
 [reqwest]: https://crates.io/crates/reqwest
 [serde]: https://crates.io/crates/serde
 [serde_json]: https://crates.io/crates/serde_json

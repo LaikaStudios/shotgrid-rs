@@ -3,14 +3,14 @@
 //! For this to work you must set 3 env
 //! vars, `SG_SERVER`, `SG_SCRIPT_NAME`, and `SG_SCRIPT_KEY`.
 //!
-//! Set the `SG_SERVER` environment variable to the url for your shotgun server, eg:
+//! Set the `SG_SERVER` environment variable to the url for your ShotGrid server, eg:
 //!
 //! ```text
-//! export SG_SERVER=https://shotgun.example.com
+//! export SG_SERVER=https://shotgrid.example.com
 //! ```
 //!
-//! `shotgun_rs` also looks at the `CA_BUNDLE` environment variable for when you need a custom CA
-//! loaded to access your shotgun server, for example:
+//! `shotgrid_rs` also looks at the `CA_BUNDLE` environment variable for when
+//! you need a custom CA loaded to access your ShotGrid server, for example:
 //!
 //! ```text
 //! export CA_BUNDLE=/etc/ssl/my-ca-certs.crt
@@ -19,16 +19,16 @@
 //! Usage:
 //!
 //! ```text
-//! $ cargo run --example text-search <shotgun login to search as> <asset name to search for> [limit]
+//! $ cargo run --example text-search <ShotGrid login to search as> <asset name to search for> [limit]
 //! ```
 
 use serde_json::Value;
-use shotgun_rs::filters::{self, field};
-use shotgun_rs::Shotgun;
+use shotgrid_rs::filters::{self, field};
+use shotgrid_rs::Client;
 use std::env;
 
 #[tokio::main]
-async fn main() -> shotgun_rs::Result<()> {
+async fn main() -> shotgrid_rs::Result<()> {
     dotenv::dotenv().ok();
 
     let server = env::var("SG_SERVER").expect("SG_SERVER is required var.");
@@ -41,7 +41,7 @@ async fn main() -> shotgun_rs::Result<()> {
         .nth(3)
         .map(|s| s.parse().expect("limit must be a number"));
 
-    let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let sg = Client::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
 
     let sess = sg.authenticate_script_as_user(&login).await?;
 

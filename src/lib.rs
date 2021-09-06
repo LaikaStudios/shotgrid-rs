@@ -1,7 +1,7 @@
-//! # Welcome to Shotgun-rs!
+//! # Welcome to shotgrid-rs!
 //!
-//! This is a delicately hand-crafted REST API client for working with
-//! [Autodesk Shotgun][shotgun].
+//! `shotgrid-rs` is a REST API client for [Autodesk ShotGrid][shotgrid]
+//! (formerly _Shotgun_) built with [reqwest] and [serde_json].
 //!
 //! ## Features
 //!
@@ -26,17 +26,17 @@
 //!
 //! ## Usage
 //!
-//! The general pattern of usage starts with a `shotgun_rs::Shotgun` client.
+//! The general pattern of usage starts with a [`Client`].
 //!
 //! ```no_run
-//! # use shotgun_rs::Shotgun;
+//! # use shotgrid_rs::Client;
 //! # #[tokio::main]
-//! # async fn main() -> shotgun_rs::Result<()> {
-//! let server = "https://my-shotgun.example.com";
+//! # async fn main() -> shotgrid_rs::Result<()> {
+//! let server = "https://my-shotgrid.example.com";
 //! let script_name = "my-api-user";
 //! let script_key = "********";
 //!
-//! let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
+//! let sg = Client::new(server.to_string(), Some(script_name), Some(script_key))?;
 //! # Ok(())
 //! # }
 //! ```
@@ -45,13 +45,13 @@
 //! get a [`Session`].
 //!
 //! ```no_run
-//! # use shotgun_rs::Shotgun;
+//! # use shotgrid_rs::Client;
 //! # #[tokio::main]
-//! # async fn main() -> shotgun_rs::Result<()> {
-//! #    let server = "https://my-shotgun.example.com";
+//! # async fn main() -> shotgrid_rs::Result<()> {
+//! #    let server = "https://my-shotgrid.example.com";
 //! #    let script_name = "my-api-user";
 //! #    let script_key = "********";
-//! #    let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
+//! #    let sg = Client::new(server.to_string(), Some(script_name), Some(script_key))?;
 //! // Authenticates using the script name and script key held by the client.
 //! let session = sg.authenticate_script().await?;
 //! # Ok(())
@@ -59,7 +59,7 @@
 //! ```
 //!
 //! From there, you can use that [`Session`] to invoke the various query
-//! methods, either to use Shotgun's [rich filter API](`filters`) to find
+//! methods, either to use ShotGrid's [rich filter API](`filters`) to find
 //! records, or to create/update records.
 //!
 //! For operations where the schema of the response is *flexible* (based on the
@@ -75,9 +75,9 @@
 //!
 //! ```no_run
 //! use serde_derive::Deserialize;
-//! use shotgun_rs::types::{PaginationLinks, ResourceArrayResponse, SelfLink};
-//! use shotgun_rs::Shotgun;
-//! use shotgun_rs::filters;
+//! use shotgrid_rs::types::{PaginationLinks, ResourceArrayResponse, SelfLink};
+//! use shotgrid_rs::Client;
+//! use shotgrid_rs::filters;
 //!
 //!
 //! /// This struct should match the return fields specified for the search.
@@ -97,13 +97,13 @@
 //!
 //!
 //! #[tokio::main]
-//! async fn main() -> shotgun_rs::Result<()> {
+//! async fn main() -> shotgrid_rs::Result<()> {
 //!
-//!     let server = "https://my-shotgun.example.com";
+//!     let server = "https://my-shotgrid.example.com";
 //!     let script_name = "my-api-user";
 //!     let script_key = "********";
 //!
-//!     let sg = Shotgun::new(server.to_string(), Some(script_name), Some(script_key))?;
+//!     let sg = Client::new(server.to_string(), Some(script_name), Some(script_key))?;
 //!
 //!     let session = sg.authenticate_script().await?;
 //!
@@ -133,7 +133,7 @@
 //!
 //! ## Logging
 //!
-//! The `shotgun_rs` crate offers some logging, though most of it relates to the
+//! The `shotgrid_rs` crate offers some logging, though most of it relates to the
 //! internals of the library itself.
 //!
 //! If you're interested in logging the HTTP-transport layer, since we're using
@@ -145,7 +145,7 @@
 //!
 //! [native-tls crate]: https://crates.io/crates/native-tls
 //! [rustls crate]: https://crates.io/crates/rustls
-//! [shotgun]: https://www.shotgunsoftware.com/
+//! [shotgrid]: https://www.shotgridsoftware.com/
 //! [reqwest]: https://crates.io/crates/reqwest
 //! [serde]: https://crates.io/crates/serde
 //! [serde_json]: https://crates.io/crates/serde_json
@@ -178,15 +178,15 @@ pub use upload::{UploadReqBuilder, MAX_MULTIPART_CHUNK_SIZE, MIN_MULTIPART_CHUNK
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub mod transport {
-    /// Re-export to provide access in case callers need to manually configure the
-    /// Client via `Shotgun::with_client()`.
+    /// Re-export to provide access in case callers need to manually configure
+    /// the HTTP Client via [`crate::Client::with_transport()`].
     pub use reqwest;
 }
 
 type HttpClient = transport::reqwest::Client;
 
 /// Get a default http client with ca certs added to it if specified via env var.
-fn get_client() -> Result<HttpClient> {
+fn get_http_client() -> Result<HttpClient> {
     let builder = HttpClient::builder();
 
     let builder = if let Ok(fp) = env::var("CA_BUNDLE") {
@@ -207,22 +207,22 @@ fn get_client() -> Result<HttpClient> {
         .map_err(|e| Error::BadClientConfig(e.to_string()))
 }
 #[derive(Clone, Debug)]
-pub struct Shotgun {
-    /// Base url for the shotgun server.
+pub struct Client {
+    /// Base url for the ShotGrid server.
     sg_server: String,
-    /// HTTP Client used internally to make requests to shotgun.
-    client: HttpClient,
+    /// HTTP Client used internally to make requests to ShotGrid.
+    http: HttpClient,
     /// API User (aka "script") name, used to generate API Tokens.
     script_name: Option<String>,
     /// API User (aka "script") secret key, used to generate API Tokens.
     script_key: Option<String>,
 }
 
-impl Shotgun {
-    /// Create a new Shotgun API Client using all defaults.
+impl Client {
+    /// Create a new ShotGrid API Client using all defaults.
     ///
-    /// By default, the HTTP Client initialized while looking to a `CA_BUNDLE` environment var
-    /// for a file path to a TLS cert.
+    /// By default, the HTTP Client initialized while looking to a
+    /// `CA_BUNDLE` environment var for a file path to a TLS cert.
     ///
     /// This will `Err` when:
     ///
@@ -232,16 +232,16 @@ impl Shotgun {
         script_name: Option<&str>,
         script_key: Option<&str>,
     ) -> Result<Self> {
-        let client = get_client()?;
+        let client = get_http_client()?;
         Ok(Self {
             sg_server,
-            client,
+            http: client,
             script_name: script_name.map(Into::into),
             script_key: script_key.map(Into::into),
         })
     }
 
-    /// Create a new Shotgun API Client, but configure the HTTP client yourself.
+    /// Create a new ShotGrid API Client, but configure the HTTP client yourself.
     ///
     /// This may be the option for you if you need to adjust resource limits, or
     /// timeouts, etc on the HTTP client itself.
@@ -249,15 +249,15 @@ impl Shotgun {
     /// For your convenience, the [`transport::reqwest`] module has a re-export
     /// of the entire [`reqwest`] crate so you have access to all the types
     /// required for configuring the client.
-    pub fn with_client(
+    pub fn with_transport(
         sg_server: String,
         script_name: Option<&str>,
         script_key: Option<&str>,
-        client: HttpClient,
+        http_client: HttpClient,
     ) -> Self {
         Self {
             sg_server,
-            client,
+            http: http_client,
             script_name: script_name.map(Into::into),
             script_key: script_key.map(Into::into),
         }
@@ -266,7 +266,7 @@ impl Shotgun {
     /// Handles running authentication requests.
     async fn authenticate(&self, form_data: &[(&str, &str)]) -> Result<TokenResponse> {
         let resp = self
-            .client
+            .http
             .post(&format!("{}/api/v1/auth/access_token", self.sg_server))
             .form(form_data)
             .header("Accept", "application/json")
@@ -290,8 +290,8 @@ impl Shotgun {
 
     /// Get an access token payload for a given Api User aka "script."
     ///
-    /// This function relies on the script key and name fields being set and will fail with a
-    /// `ShotgunError::BadClientConfig` if either is missing.
+    /// This function relies on the script key and name fields being set and
+    /// will fail with a [`Error::BadClientConfig`] if either is missing.
     pub async fn authenticate_script(&self) -> Result<Session<'_>> {
         if let (Some(script_name), Some(script_key)) =
             (self.script_name.as_ref(), self.script_key.as_ref())
@@ -310,11 +310,11 @@ impl Shotgun {
         }
     }
 
-    /// The same as `authenticate_script()` except it also allows you to pass a username
-    /// to "sudo" as.
+    /// The same as `authenticate_script()` except it also allows you to pass a
+    /// username to "sudo" as.
     ///
-    /// This function relies on the script key and name fields being set and will fail with a
-    /// `ShotgunError::BadClientConfig` if either is missing.
+    /// This function relies on the script key and name fields being set and
+    /// will fail with a `Error::BadClientConfig` if either is missing.
     pub async fn authenticate_script_as_user(&self, login: &str) -> Result<Session<'_>> {
         if let (Some(script_name), Some(script_key)) =
             (self.script_name.as_ref(), self.script_key.as_ref())
@@ -334,14 +334,15 @@ impl Shotgun {
         }
     }
 
-    /// Provides version information about the Shotgun server and the REST API.
+    /// Provides version information about the ShotGrid server.
+    ///
     /// Does not require authentication
     pub async fn info<D: 'static>(&self) -> Result<D>
     where
         D: DeserializeOwned,
     {
         let req = self
-            .client
+            .http
             .get(&format!("{}/api/v1/", self.sg_server))
             .header("Accept", "application/json");
 
@@ -357,14 +358,14 @@ fn contains_errors(value: &Value) -> bool {
         .unwrap_or(false)
 }
 
-/// Converts a response body from shotgun into something more meaningful.
+/// Converts a response body from ShotGrid into something more meaningful.
 ///
 /// There are a handful of ways requests can be fulfilled:
 ///
 /// - Good! _You got a payload that matches your expected shape_.
 /// - Bad! _The payload is legit, but doesn't conform to your expectations_.
-/// - More Bad! _The request you sent didn't make sense to shotgun, so shotgun replied
-///   with some error details_.
+/// - More Bad! _The request you sent didn't make sense to ShotGrid, so it
+///   replied with some error details_.
 /// - Really Bad! _The response was total garbage; can't even be parsed as json_.
 ///
 /// This function aims to cover converting the raw body into either the shape you requested, or an
@@ -378,9 +379,10 @@ where
     // There are three (3) potential failure modes here:
     //
     // 1. Connection problems could lead to partial/garbled/non-json payload
-    //    resulting in a json parse error. There could also just be no payload for a response, ie 204.
-    // 2. The payload could be json, but contain an error message from shotgun about
-    //    the filter.
+    //    resulting in a json parse error. There could also just be no payload
+    //    for a response, ie 204.
+    // 2. The payload could be json, but contain an error message from ShotGrid
+    //    about the filter.
     // 3. The payload might parse as valid json, but the json might not fit the
     //    deserialization target `D`.
     match serde_json::from_slice::<Value>(&bytes) {
@@ -392,8 +394,8 @@ where
         }
         Ok(v) => {
             if contains_errors(&v) {
-                trace!("Got error response from shotgun:\n{}", &v.to_string());
-                // case 2 - shotgun response has error feedback.
+                trace!("Got error response from ShotGrid:\n{}", &v.to_string());
+                // case 2 - server response has error feedback.
                 match serde_json::from_value::<ErrorResponse>(v) {
                     Ok(resp) => {
                         let maybe_not_found = resp
@@ -455,7 +457,7 @@ pub enum Error {
     UploadError(String),
 }
 
-/// Response from Shotgun after a successful auth challenge.
+/// Response from ShotGrid after a successful auth challenge.
 #[derive(Clone, Debug, Deserialize)]
 pub struct TokenResponse {
     pub token_type: String,
@@ -493,10 +495,10 @@ mod mock_tests {
             .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
             .mount(&mock_server)
             .await;
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let _sess = sg
-            .authenticate_user("nbabcock", "forgot my passwd")
+            .authenticate_user("nbabcock", "iCdEAD!ppl")
             .await
             .unwrap();
     }
@@ -507,14 +509,14 @@ mod mock_tests {
         let body = r##"
         {
             "errors": [
-               {
-                  "id": "xxxxx",
-                  "status": 500,
-                  "code": 100,
-                  "title": "Shotgun Server Error",
-                  "source": null,
-                  "detail": "Please contact your Shotgun administrator, or contact Shotgun support at: support@shotgunsoftware.com. Please pass on the following information so we can trace what happened: Request: xxxxx Event: .",
-                  "meta": null
+                {
+                    "code": 102,
+                    "detail": null,
+                    "id": "xxxxx",
+                    "meta": null,
+                    "source": {},
+                    "status": 400,
+                    "title": "Can't authenticate user 'nbabcock'."
                 }
             ]
         }
@@ -522,23 +524,25 @@ mod mock_tests {
 
         Mock::given(method("POST"))
             .and(path("/api/v1/auth/access_token"))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .respond_with(ResponseTemplate::new(400).set_body_raw(body, "application/json"))
             .mount(&mock_server)
             .await;
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
-        let maybe_sess = sg.authenticate_user("nbabcock", "iCdEAD!ppl").await;
+        let maybe_sess = sg.authenticate_user("nbabcock", "forgot my passwd").await;
 
         // verify the error response was decoded as expected.
         match maybe_sess {
             Err(Error::ServerError(errors)) => {
                 let details = &errors[0];
                 assert_eq!("xxxxx", details.id.as_ref().unwrap());
-                assert_eq!("Shotgun Server Error", details.title.as_ref().unwrap());
-                assert_eq!(500, details.status.unwrap());
-                assert_eq!(100, details.code.unwrap());
-                assert!(details.source.is_none());
-                assert!(details.detail.as_ref().unwrap().contains("Request: xxxxx"));
+                assert!(details
+                    .title
+                    .as_ref()
+                    .unwrap()
+                    .contains("Can't authenticate user"));
+                assert_eq!(400, details.status.unwrap());
+                assert_eq!(102, details.code.unwrap());
             }
             _ => unreachable!(),
         }

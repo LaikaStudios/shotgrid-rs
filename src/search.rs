@@ -93,10 +93,10 @@ impl<'a> SearchBuilder<'a> {
             }
 
             // The page size is optional so we don't have to hard code
-            // shotgun's *current* default of 500 into the library.
+            // ShotGrid's *current* default of 500 into the library.
             //
-            // If/when shotgun changes their default, folks who haven't
-            // specified a page size should get whatever shotgun says, not *our*
+            // If/when ShotGrid changes their default, folks who haven't
+            // specified a page size should get whatever ShotGrid says, not *our*
             // hard-coded default.
             if let Some(size) = pag.size {
                 query.push(("page[size]", Cow::Owned(format!("{}", size))));
@@ -126,7 +126,7 @@ impl<'a> SearchBuilder<'a> {
         }
         let (sg, token) = self.session.get_sg().await?;
         let req = sg
-            .client
+            .http
             .post(&format!(
                 "{}/api/v1/entity/{}/_search",
                 sg.sg_server, self.entity
@@ -135,10 +135,10 @@ impl<'a> SearchBuilder<'a> {
             .header("Accept", "application/json")
             .bearer_auth(&token)
             .header("Content-Type", self.filters.get_mime())
-            // XXX: the content type is being set to shotgun's custom mime types
-            //   to indicate the shape of the filter payload. Do not be tempted to use
-            //   `.json()` here instead of `.body()` or you'll end up reverting the
-            //   header set above.
+            // The content type is being set to ShotGrid's custom mime types
+            // to indicate the shape of the filter payload. Do not be tempted to
+            // use `.json()` here instead of `.body()` or you'll end up
+            // reverting the header set above.
             .body(json!({"filters": self.filters}).to_string());
 
         crate::handle_response(req.send().await?).await
