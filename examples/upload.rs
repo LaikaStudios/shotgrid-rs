@@ -3,14 +3,14 @@
 //! For this to work you must set 3 env
 //! vars, `SG_SERVER`, `SG_SCRIPT_NAME`, and `SG_SCRIPT_KEY`.
 //!
-//! Set the `SG_SERVER` environment variable to the url for your shotgun server, eg:
+//! Set the `SG_SERVER` environment variable to the url for your ShotGrid server, eg:
 //!
 //! ```text
-//! export SG_SERVER=https://shotgun.example.com
+//! export SG_SERVER=https://shotgrid.example.com
 //! ```
 //!
-//! `shotgun_rs` also looks at the `CA_BUNDLE` environment variable for when you need a custom CA
-//! loaded to access your shotgun server, for example:
+//! `shotgrid_rs` also looks at the `CA_BUNDLE` environment variable for when
+//! you need a custom CA loaded to access your ShotGrid server, for example:
 //!
 //! ```text
 //! export CA_BUNDLE=/etc/ssl/my-ca-certs.crt
@@ -22,12 +22,12 @@
 //! $ cargo run --example upload note 12345 tester path/to/file.ext [optional display name]
 //! ```
 
-use shotgun_rs::Shotgun;
+use shotgrid_rs::Client;
 use std::env;
 use std::path::PathBuf;
 
 #[tokio::main]
-async fn main() -> shotgun_rs::Result<()> {
+async fn main() -> shotgrid_rs::Result<()> {
     dotenv::dotenv().ok();
 
     let server = env::var("SG_SERVER").expect("SG_SERVER");
@@ -42,7 +42,7 @@ async fn main() -> shotgun_rs::Result<()> {
     let file_path: PathBuf = env::args().nth(3).expect("File Path").into();
     let display_name = env::args().nth(4);
 
-    let sg = Shotgun::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
+    let sg = Client::new(server, Some(&script_name), Some(&script_key)).expect("SG Client");
     let session = sg.authenticate_script().await?;
     let fh = std::fs::OpenOptions::new()
         .read(true)

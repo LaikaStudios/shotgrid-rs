@@ -10,7 +10,7 @@ pub use crate::summarize::{
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSactivityupdate>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSactivityupdate>
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ActivityUpdate {
     id: Option<i32>,
@@ -30,19 +30,19 @@ pub enum AltImages {
     Thumbnail,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSbatchcreateoptionsparameter>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSbatchcreateoptionsparameter>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BatchCreateOptionsParameter {
     pub options: Option<serde_json::Map<String, Value>>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSbatchedrequestsresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSbatchedrequestsresponse>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BatchedRequestsResponse {
     pub data: Option<Vec<Record>>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSclientcredentialsrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSclientcredentialsrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ClientCredentialsRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,7 +78,7 @@ impl Entity {
     }
 }
 
-/// EntityActivityStreamData is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// EntityActivityStreamData is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EntityActivityStreamData {
     pub entity_id: Option<i32>,
@@ -88,7 +88,7 @@ pub struct EntityActivityStreamData {
     pub updates: Option<Vec<ActivityUpdate>>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSentityactivitystreamresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSentityactivitystreamresponse>
 pub type EntityActivityStreamResponse = SingleResourceResponse<EntityActivityStreamData, SelfLink>;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -97,7 +97,7 @@ pub struct EntityIdentifier {
     pub entity: Option<String>,
 }
 
-/// EntityThreadContentsData is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// EntityThreadContentsData is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EntityThreadContentsData {
     pub id: Option<i32>,
@@ -106,7 +106,7 @@ pub struct EntityThreadContentsData {
     pub created_at: Option<String>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSentitythreadcontentsresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSentitythreadcontentsresponse>
 pub type EntityThreadContentsResponse = SingleResourceResponse<EntityThreadContentsData, SelfLink>;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -125,10 +125,10 @@ pub struct ErrorObject {
     pub meta: Option<serde_json::Map<String, Value>>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSfieldhashresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSfieldhashresponse>
 pub type FieldHashResponse = SingleResourceResponse<Value, SelfLink>;
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSfilterhash>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSfilterhash>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FilterHash {
     pub logical_operator: Option<LogicalOperator>,
@@ -136,7 +136,7 @@ pub struct FilterHash {
     pub conditions: Option<Value>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSfollowerrecord>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSfollowerrecord>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FollowerRecord {
     pub id: Option<i32>,
@@ -145,7 +145,7 @@ pub struct FollowerRecord {
     pub links: Option<SelfLink>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSfollowrecord>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSfollowrecord>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FollowRecord {
     pub id: Option<i32>,
@@ -153,10 +153,10 @@ pub struct FollowRecord {
     pub links: Option<SelfLink>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSgetworkdayrulesresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSgetworkdayrulesresponse>
 pub type GetWorkDayRulesResponse = ResourceArrayResponse<WorkDayRulesData, SelfLink>;
 
-/// HierarchyEntityFields is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// HierarchyEntityFields is not represented as a named schema in the ShotGrid OpenAPI Spec.
 // FIXME: the spec indicates `entity` and `fields` are optional, but if you send
 //  a `HierarchyEntityFields` to the server without either of them, you'll get a
 //  400 response.
@@ -167,7 +167,7 @@ pub struct HierarchyEntityFields {
     pub fields: Option<Vec<String>>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocShierarchyexpandrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocShierarchyexpandrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HierarchyExpandRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,13 +238,13 @@ pub struct HierarchyExpandResponseData {
     pub children: Option<Vec<HierarchyExpandResponseData>>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocShierarchyexpandresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocShierarchyexpandresponse>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HierarchyExpandResponse {
     pub data: Option<HierarchyExpandResponseData>,
 }
 
-/// HierarchyReferenceEntity is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// HierarchyReferenceEntity is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HierarchyReferenceEntity {
     pub id: Option<i32>,
@@ -260,7 +260,7 @@ pub enum HierarchySearchCriteria {
     Entity(Entity),
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocShierarchysearchrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocShierarchysearchrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HierarchySearchRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -270,7 +270,7 @@ pub struct HierarchySearchRequest {
     pub seed_entity_field: Option<String>,
 }
 
-/// HierarchySearchResponseData is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// HierarchySearchResponseData is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HierarchySearchResponseData {
     pub label: Option<String>,
@@ -280,7 +280,7 @@ pub struct HierarchySearchResponseData {
     pub project_id: Option<i32>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocShierarchysearchresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocShierarchysearchresponse>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HierarchySearchResponse {
     pub data: Option<Vec<HierarchySearchResponseData>>,
@@ -294,7 +294,7 @@ pub enum LogicalOperator {
     Or,
 }
 
-/// MultipleResourceResponse is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// MultipleResourceResponse is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ResourceArrayResponse<R, L> {
     /// Resource data
@@ -312,7 +312,7 @@ pub struct ResourceMapResponse<R, L> {
     pub links: Option<L>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSoptionsparameter>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSoptionsparameter>
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct OptionsParameter {
     pub return_only: Option<ReturnOnly>,
@@ -320,13 +320,13 @@ pub struct OptionsParameter {
 }
 
 /// This controls the paging of search-style list API calls.
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSpaginationparameter>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSpaginationparameter>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PaginationParameter {
     ///  Pages start at 1, not 0.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number: Option<usize>,
-    /// Shotgun's default currently is 500
+    /// ShotGrid's default currently is 500
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<usize>,
 }
@@ -340,7 +340,7 @@ impl Default for PaginationParameter {
     }
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSpaginationlinks>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSpaginationlinks>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PaginationLinks {
     // Has to rename because we can't do raw self
@@ -352,7 +352,7 @@ pub struct PaginationLinks {
 
 pub type PaginatedRecordResponse = ResourceArrayResponse<Record, PaginationLinks>;
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSpasswordrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSpasswordrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PasswordRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -373,10 +373,10 @@ impl Default for PasswordRequest {
     }
 }
 
-/// This does not exist as a part of Shotgun's REST API
+/// This does not exist as a part of ShotGrid's REST API
 pub type ProjectAccessUpdateResponse = SingleResourceResponse<Entity, SelfLink>;
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSrecord>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSrecord>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Record {
     pub id: Option<i32>,
@@ -386,7 +386,7 @@ pub struct Record {
     pub links: Option<SelfLink>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSrefreshrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSrefreshrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RefreshRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -395,7 +395,7 @@ pub struct RefreshRequest {
     pub refresh_token: Option<String>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSrelationshipsresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSrelationshipsresponse>
 /// The value is either a Record or a vec of records
 pub type RelationshipsResponse = SingleResourceResponse<Value, SelfLink>;
 
@@ -405,28 +405,28 @@ pub enum ReturnOnly {
     Retired,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSsearchrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSsearchrequest>
 #[derive(Clone, Debug, Serialize)]
 pub struct SearchRequest {
     /// Either an array of arrays or a FilterHash
     pub filters: Option<crate::filters::FinalizedFilters>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSselflink>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSselflink>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SelfLink {
     #[serde(rename = "self")]
     pub self_link: Option<String>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSsinglerecordresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSsinglerecordresponse>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SingleRecordResponse {
     pub data: Option<Record>,
     pub links: Option<SelfLink>,
 }
 
-/// Unlike SingleRecordResponse, this is not part of Shotgun's REST API.
+/// Unlike SingleRecordResponse, this is not part of ShotGrid's REST API.
 /// This is a generic.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SingleResourceResponse<R, L> {
@@ -436,7 +436,7 @@ pub struct SingleResourceResponse<R, L> {
     pub links: Option<L>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocStextsearchrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocStextsearchrequest>
 #[derive(Serialize, Debug, Clone)]
 pub struct TextSearchRequest {
     pub entity_types: HashMap<String, crate::filters::FinalizedFilters>,
@@ -448,7 +448,7 @@ pub struct TextSearchRequest {
     pub sort: Option<String>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSupdateworkdayrulesrequest>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSupdateworkdayrulesrequest>
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UpdateWorkDayRulesRequest {
     pub date: String,
@@ -463,7 +463,7 @@ pub struct UpdateWorkDayRulesRequest {
     pub description: Option<String>,
 }
 
-/// UpdateWorkDayRulesData is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// UpdateWorkDayRulesData is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UpdateWorkDayRulesData {
     pub date: Option<String>,
@@ -472,10 +472,10 @@ pub struct UpdateWorkDayRulesData {
     pub reason: Option<String>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/?shell#tocSupdateworkdayrulesresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/?shell#tocSupdateworkdayrulesresponse>
 pub type UpdateWorkDayRulesResponse = SingleResourceResponse<UpdateWorkDayRulesData, SelfLink>;
 
-/// UploadInfoData is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// UploadInfoData is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UploadInfoData {
     pub timestamp: Option<String>,
@@ -486,7 +486,7 @@ pub struct UploadInfoData {
     pub multipart_upload: Option<bool>,
 }
 
-/// UploadInfoLinks is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// UploadInfoLinks is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UploadInfoLinks {
     pub upload: Option<String>,
@@ -504,26 +504,26 @@ pub(crate) struct NextUploadPartResponse {
     pub links: Option<NextUploadPartLinks>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSuploadinforesponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSuploadinforesponse>
 pub type UploadInfoResponse = SingleResourceResponse<UploadInfoData, UploadInfoLinks>;
 
-/// UploadResponseData is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// UploadResponseData is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UploadResponseData {
     pub upload_id: Option<String>,
     pub original_filename: Option<String>,
 }
 
-/// UploadResponseLinks is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// UploadResponseLinks is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UploadResponseLinks {
     pub complete_upload: Option<String>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSuploadresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSuploadresponse>
 pub type UploadResponse = SingleResourceResponse<UploadResponseData, UploadResponseLinks>;
 
-/// WorkDayRulesData is not represented as a named schema in the Shotgun OpenAPI Spec.
+/// WorkDayRulesData is not represented as a named schema in the ShotGrid OpenAPI Spec.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WorkDayRulesData {
     pub date: Option<String>,

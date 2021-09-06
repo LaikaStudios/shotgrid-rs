@@ -1,11 +1,12 @@
-//! Uploading files to Shotgun can happen in a handful of ways.
+//! Uploading files to ShotGrid can happen in a handful of ways.
 //!
 //! At a high level, it breaks down into a couple different aspects that are
 //! mixed/matched depending on:
 //!
 //! - The thing you are linking your file to.
 //! - The size of the file.
-//! - The configuration of your Shotgun server (specifically the *storage service* it uses).
+//! - The configuration of your ShotGrid server (specifically the
+//!   *storage service* it uses).
 //!
 //! Uploads that target an entity without specifying a field are thought to be
 //! linked to *the record* as opposed to *a field*.
@@ -17,20 +18,20 @@
 //! Uploads that target *other fields* or a *record* are thought to be
 //! "attachment uploads" and will accept a display name and tags.
 //!
-//! Shotgun instances that are configured to use S3 as their storage service
+//! ShotGrid servers that are configured to use S3 as their storage service
 //! offer a *multipart* upload option, which is required for files larger than
 //! 500Mb. Effectively *multipart* in this case means breaking up the file into
 //! chunks and sending them to S3 individually. After all the chunks have been
-//! sent, Shotgun reassembles the file.
+//! sent, ShotGrid reassembles the file.
 //!
-//! For Shotgun instances that are configured to use Shotgun (identified as "sg"
+//! For ShotGrid servers that are configured to use ShotGrid (identified as "sg"
 //! in JSON payloads) no such *multipart* option is available.
 //!
-//! For more on this, refer to the Shotgun REST API docs:
+//! For more on this, refer to the ShotGrid REST API docs:
 //!
-//! <https://developer.shotgunsoftware.com/rest-api/#shotgun-rest-api-Uploading-and-Downloading-Files>
+//! <https://developer.shotgridsoftware.com/rest-api/#shotgrid-rest-api-Uploading-and-Downloading-Files>
 use crate::types::{Entity, NextUploadPartResponse, UploadInfoResponse, UploadResponse};
-use crate::{handle_response, Error, Result, Session, Shotgun};
+use crate::{handle_response, Client, Error, Result, Session};
 use futures::stream::poll_fn;
 use futures::task::Poll;
 use futures::{TryStream, TryStreamExt};
@@ -40,7 +41,7 @@ use serde_json::{json, Value};
 use std::io::Read;
 use std::str::FromStr;
 
-// Per the shotgun docs, multipart uploads should use 5Mb (minimum, save for
+// Per the ShotGrid docs, multipart uploads should use 5Mb (minimum, save for
 // the final part) sized chunks.
 // Multipart is *required* for uploads >= 500Mb on S3 storage.
 pub const MAX_MULTIPART_CHUNK_SIZE: usize = 500 * 1024 * 1024;
@@ -48,7 +49,7 @@ pub const MIN_MULTIPART_CHUNK_SIZE: usize = 5 * 1024 * 1024;
 
 /// Configures a file upload request.
 ///
-/// This is the return value from `Shotgun::upload()`, used to configure the
+/// This is the return value from [`Session::upload()`], used to configure the
 /// behavior of the upload.
 // XXX: we could simplify this type by accepting the file_content as a param
 // to `send()` instead of holding it in the builder. Food for thought.
@@ -58,9 +59,9 @@ pub struct UploadReqBuilder<'a> {
     entity_id: i32,
     /// This optional field name must be a "file type" field when specified.
     field: Option<&'a str>,
-    /// The original filename. This is used by Shotgun to know how to serve the
+    /// The original filename. This is used by ShotGrid to know how to serve the
     /// file in the web UI.
-    /// Effectively, this tells Shotgun what content-type header to send
+    /// Effectively, this tells ShotGrid what content-type header to send
     /// with it.
     filename: &'a str,
     mimetype: Option<Mime>, // FIXME: give a way for caller to set this
@@ -94,7 +95,7 @@ impl<'a> UploadReqBuilder<'a> {
             // falling back to `application/octet-stream`.
             //
             // XXX: maybe we could open this up to the caller and make them do
-            // the guessing? That's what Shotgun did to us after all...
+            // the guessing? That's what ShotGrid did to us after all...
             mimetype: mime_guess::from_path(filename).first(),
             // Optional stuff
             display_name: None,
@@ -125,7 +126,7 @@ impl<'a> UploadReqBuilder<'a> {
     /// When set to `true`, breaks the file up into chunks which are each
     /// uploaded to the server separately.
     ///
-    /// Note: multipart support is *only available* when your Shotgun instance
+    /// Note: multipart support is *only available* when your ShotGrid server
     /// is configured to use **S3** as its **storage service**.
     pub fn multipart(mut self, multipart: bool) -> Self {
         self.multipart = multipart;
@@ -150,27 +151,27 @@ impl<'a> UploadReqBuilder<'a> {
 
     /// Helper to manage the complexities of the multipart flow.
     ///
-    /// > Multipart uploads are only possible if your shotgun instance is
+    /// > Multipart uploads are only possible if your ShotGrid server is
     /// > configured to use S3 storage.
     ///
     /// Multipart uploads involve splitting the file into chunks and making a
     /// PUT request for each.
     ///
     /// Each put request will respond with an ETag header which is used to
-    /// identify each chunk so shotgun can and reassemble the file once the
+    /// identify each chunk so ShotGrid can and reassemble the file once the
     /// entire operation has been completed.
     ///
     /// Each time you PUT bytes to the storage service, you must then return to
-    /// shotgun to request the next url to PUT to.
+    /// ShotGrid to request the next url to PUT to.
     ///
     /// The result of this method is either a vec of etag values (one per chunk).
     /// In the event that any of the requests for this flow fail, the result
     /// will be the Err from the failed request, but in addition to this, an
-    /// *abort request* will be sent to signal to shotgun that it should not
+    /// *abort request* will be sent to signal to ShotGrid that it should not
     /// expect any more chunks. If the *abort request fails* the Err for that
     /// failure will be logged as a warning (not an error).
     async fn do_multipart_upload<S>(
-        sg: &Shotgun,
+        sg: &Client,
         token: &str,
         file_content: S,
         mimetype: Option<Mime>,
@@ -286,7 +287,7 @@ impl<'a> UploadReqBuilder<'a> {
 
             let upload_resp = {
                 let mut upload_req = sg
-                    .client
+                    .http
                     .put(&upload_url)
                     .header("Content-Length", content_len)
                     .body(body)
@@ -335,11 +336,11 @@ impl<'a> UploadReqBuilder<'a> {
 
             // XXX: used to force a multi-part upload to fail
             // if uploaded_bytes > buf_len {
-            //     return Err(ShotgunError::UploadError(String::from("Oops!!")));
+            //     return Err(Error::UploadError(String::from("Oops!!")));
             // }
 
             let next: NextUploadPartResponse = handle_response(
-                sg.client
+                sg.http
                     .get(&format!("{}{}", sg.sg_server, get_next_part))
                     .header("Accept", "application/json")
                     .bearer_auth(token)
@@ -373,16 +374,16 @@ impl<'a> UploadReqBuilder<'a> {
     }
 
     async fn abort_multipart_upload(
-        sg: &Shotgun,
+        sg: &Client,
         token: &str,
         completion_url: &str,
         completion_body: &Value,
     ) {
         let abort_url = format!("{}/multipart_abort", completion_url);
         match sg
-            .client
+            .http
             .post(&abort_url)
-            // The Shotgun REST API spec says the body should
+            // The ShotGrid REST API spec says the body should
             // include the "upload_info" key at the top-level of
             // by object, but in reality this gets you a 400
             // response where the error payload lists all the
@@ -538,13 +539,13 @@ impl<'a> UploadReqBuilder<'a> {
         });
 
         match (storage_service, multipart) {
-            (StorageService::Shotgun, false) => {
+            (StorageService::SG, false) => {
                 log::trace!("Upload to SG storage.");
 
                 let body = reqwest::Body::wrap_stream(file_content);
 
                 let mut upload_req = sg
-                    .client
+                    .http
                     .put(upload_url)
                     .body(body)
                     .header("Accept", "application/json")
@@ -592,7 +593,7 @@ impl<'a> UploadReqBuilder<'a> {
                 };
                 // S3 uses tokens in the query string instead of auth headers.
                 let mut upload_req = sg
-                    .client
+                    .http
                     .put(upload_url)
                     .body(body)
                     .header("Accept", "application/json");
@@ -654,7 +655,7 @@ impl<'a> UploadReqBuilder<'a> {
         }
 
         // The `upload_data` key should be left as empty object for "thumbnail uploads."
-        // <https://developer.shotgunsoftware.com/rest-api/#completing-an-upload>
+        // <https://developer.shotgridsoftware.com/rest-api/#completing-an-upload>
         //
         // In practice, it seems safe to send data in this key, but it might be
         // ignored. We may as well elect to not send the extra bytes if the
@@ -678,7 +679,7 @@ impl<'a> UploadReqBuilder<'a> {
 
         log::trace!("Completing upload.");
         let completion_resp = match sg
-            .client
+            .http
             .post(&completion_url)
             .json(&completion_body)
             .bearer_auth(&token)
@@ -718,7 +719,7 @@ impl<'a> UploadReqBuilder<'a> {
             StatusCode::CREATED | StatusCode::NO_CONTENT => {} // Good
             _ => {
                 // If the status is 400/401, the request was rejected for some
-                // expected-by-shotgun reason.
+                // expected-by-ShotGrid reason.
                 // If it's anything *other than 201/204*, the way to handle it
                 // will be the same, really: hand it off to `handle_response()`
                 // to get the `Err` it should inevitably produce.
@@ -736,9 +737,9 @@ impl<'a> UploadReqBuilder<'a> {
     }
 }
 
-/// Uploads can either be direct to shotgun or to AWS S3.
+/// Uploads can either be direct to ShotGrid or to AWS S3.
 enum StorageService {
-    Shotgun,
+    SG,
     S3,
 }
 
@@ -747,7 +748,7 @@ impl FromStr for StorageService {
 
     fn from_str(s: &str) -> crate::Result<Self> {
         match s {
-            "sg" => Ok(StorageService::Shotgun),
+            "sg" => Ok(StorageService::SG),
             "s3" => Ok(StorageService::S3),
             other => Err(Error::UploadError(format!(
                 "Unexpected storage service `{:?}`.",
@@ -780,7 +781,7 @@ impl FromStr for UploadType {
 #[cfg(test)]
 mod mock_tests {
     use super::*;
-    use crate::Shotgun;
+    use crate::Client;
     use std::io::Cursor;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -834,7 +835,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/_upload"))
@@ -852,7 +853,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let session = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -909,7 +910,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/_upload"))
@@ -928,7 +929,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let session = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1012,7 +1013,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/_upload"))
@@ -1032,7 +1033,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1092,7 +1093,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/_upload"))
@@ -1100,7 +1101,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1186,7 +1187,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/attachments/_upload"))
@@ -1222,7 +1223,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let session = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1238,7 +1239,7 @@ mod mock_tests {
                 // It is not currently possible to do a multipart upload without
                 // specifying a field name.
                 // This should be possible once SG-20292 has been closed in some
-                // future release of Shotgun.
+                // future release of ShotGrid.
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
@@ -1288,7 +1289,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/attachments/_upload"))
@@ -1306,7 +1307,7 @@ mod mock_tests {
                 "/api/v1/entity/notes/123456/attachments/_upload/multipart",
             ))
             .respond_with(
-                // Simulating shotgun going AWOL part of the way through the flow
+                // Simulating ShotGrid going AWOL part of the way through the flow
                 ResponseTemplate::new(503),
             )
             .mount(&mock_server)
@@ -1320,7 +1321,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1337,7 +1338,7 @@ mod mock_tests {
                 // It is not currently possible to do a multipart upload without
                 // specifying a field name.
                 // This should be possible once SG-20292 has been closed in some
-                // future release of Shotgun.
+                // future release of ShotGrid.
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
@@ -1394,7 +1395,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/attachments/_upload"))
@@ -1413,7 +1414,7 @@ mod mock_tests {
                 "/api/v1/entity/notes/123456/attachments/_upload/multipart",
             ))
             .respond_with(
-                // Simulating shotgun going AWOL part of the way through the flow
+                // Simulating ShotGrid going AWOL part of the way through the flow
                 ResponseTemplate::new(503),
             )
             .mount(&mock_server)
@@ -1427,7 +1428,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1444,7 +1445,7 @@ mod mock_tests {
                 // It is not currently possible to do a multipart upload without
                 // specifying a field name.
                 // This should be possible once SG-20292 has been closed in some
-                // future release of Shotgun.
+                // future release of ShotGrid.
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
@@ -1513,7 +1514,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/attachments/_upload"))
@@ -1537,7 +1538,7 @@ mod mock_tests {
             .await;
         Mock::given(method("POST"))
             .and(path("/api/v1/entity/notes/123456/attachments/_upload"))
-            // Simulate Shotgun being unavailable for the "complete" request.
+            // Simulate ShotGrid being unavailable for the "complete" request.
             .respond_with(ResponseTemplate::new(503))
             .mount(&mock_server)
             .await;
@@ -1550,7 +1551,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1566,7 +1567,7 @@ mod mock_tests {
                 // It is not currently possible to do a multipart upload without
                 // specifying a field name.
                 // This should be possible once SG-20292 has been closed in some
-                // future release of Shotgun.
+                // future release of ShotGrid.
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
@@ -1640,7 +1641,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
         Mock::given(method("GET"))
-            // Worth noting shotgun will normalize the entity name into
+            // Worth noting ShotGrid will normalize the entity name into
             // lower-case plural in the urls it generates but this first "init"
             // request uses the entity name we pass into `upload()` as-is.
             .and(path("/api/v1/entity/Note/123456/attachments/_upload"))
@@ -1664,7 +1665,7 @@ mod mock_tests {
             .await;
         Mock::given(method("POST"))
             .and(path("/api/v1/entity/notes/123456/attachments/_upload"))
-            // Simulate Shotgun being unavailable for the "complete" request.
+            // Simulate ShotGrid being unavailable for the "complete" request.
             .respond_with(ResponseTemplate::new(503))
             .mount(&mock_server)
             .await;
@@ -1672,13 +1673,13 @@ mod mock_tests {
             .and(path(
                 "/api/v1/entity/notes/123456/attachments/_upload/multipart_abort",
             ))
-            // Shotgun is still in distress.
+            // ShotGrid is still in distress.
             .respond_with(ResponseTemplate::new(503))
             .expect(1)
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1694,7 +1695,7 @@ mod mock_tests {
                 // It is not currently possible to do a multipart upload without
                 // specifying a field name.
                 // This should be possible once SG-20292 has been closed in some
-                // future release of Shotgun.
+                // future release of ShotGrid.
                 // <https://support.shotgunsoftware.com/hc/en-us/requests/117070>
                 Some("attachments"),
                 "paranorman-poster.jpg",
@@ -1730,7 +1731,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")
@@ -1773,7 +1774,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let sess = sg
             .authenticate_user("nbabcock", "iCdEAD!ppl")

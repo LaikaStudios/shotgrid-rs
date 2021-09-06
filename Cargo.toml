@@ -1,5 +1,5 @@
 [package]
-name = "shotgun-rs"
+name = "shotgrid-rs"
 version = "0.9.0-alpha"
 authors = [
     "Owen Nelson <onelson@laika.com>",
@@ -45,7 +45,7 @@ rustls = ["reqwest/rustls-tls"]
 # Enable this to allow `cargo test` to run the integration tests.
 # The integration tests also depend on having the following env vars set:
 #
-# - `TEST_SG_SERVER`, the shotgun server to connect to.
+# - `TEST_SG_SERVER`, the ShotGrid server to connect to.
 # - `TEST_SG_SCRIPT_NAME`, the name of an ApiUser to connect as.
 # - `TEST_SG_SCRIPT_KEY`, the API key to go with the name.
 # - `TEST_SG_HUMAN_USER_LOGIN`, certain tests require a `HumanUser` so this is

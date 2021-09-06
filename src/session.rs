@@ -17,7 +17,7 @@ use crate::{
     handle_response, summarize, upload, EntityRelationshipReadReqBuilder, Error, Result,
     SearchBuilder, SummarizeReqBuilder, UploadReqBuilder,
 };
-use crate::{Shotgun, TokenResponse};
+use crate::{Client, TokenResponse};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Session<'sg> {
     last_refresh: u64,
     tokens: tokio::sync::Mutex<TokenResponse>,
-    client: &'sg Shotgun,
+    client: &'sg Client,
 }
 
 // To account for time elapsed between the auth request and the
@@ -38,7 +38,7 @@ pub struct Session<'sg> {
 const TOKEN_REFRESH_SLOP: u64 = 90;
 
 impl<'sg> Session<'sg> {
-    pub(crate) fn new(sg: &'sg Shotgun, initial_auth: TokenResponse) -> Self {
+    pub(crate) fn new(sg: &'sg Client, initial_auth: TokenResponse) -> Self {
         log::trace!("New session.");
         Self {
             client: sg,
@@ -55,7 +55,7 @@ impl<'sg> Session<'sg> {
     ///
     /// This is mostly just a stepping stone to bridge session vs pre-session
     /// code.
-    pub(crate) async fn get_sg(&self) -> Result<(&Shotgun, String)> {
+    pub(crate) async fn get_sg(&self) -> Result<(&Client, String)> {
         if self.token_expiring().await {
             self.refresh_token().await?;
         }
@@ -101,7 +101,7 @@ impl<'sg> Session<'sg> {
     pub async fn batch(&self, data: Value) -> Result<BatchedRequestsResponse> {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .post(&format!("{}/api/v1/entity/_batch", sg.sg_server))
             .bearer_auth(token)
             .header("Accept", "application/json")
@@ -129,7 +129,7 @@ impl<'sg> Session<'sg> {
     {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .post(&format!("{}/api/v1/entity/{}", sg.sg_server, entity,))
             .bearer_auth(token)
             .header("Accept", "application/json")
@@ -146,7 +146,7 @@ impl<'sg> Session<'sg> {
         let (sg, token) = self.get_sg().await?;
         let url = format!("{}/api/v1/entity/{}/{}", sg.sg_server, entity, id,);
         let resp = sg
-            .client
+            .http
             .delete(&url)
             .bearer_auth(token)
             .header("Accept", "application/json")
@@ -164,7 +164,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Provides access to the activity stream of an entity
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-entity-activity-stream>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-entity-activity-stream>
     pub async fn entity_activity_stream_read(
         &self,
         entity_type: &str,
@@ -172,7 +172,7 @@ impl<'sg> Session<'sg> {
     ) -> Result<EntityActivityStreamResponse> {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/entity/{}/{}/activity_stream",
                 sg.sg_server, entity_type, entity_id
@@ -185,7 +185,7 @@ impl<'sg> Session<'sg> {
 
     /// Provides the information for where an upload should be sent and how to connect the upload
     /// to a field once it has been uploaded.
-    /// <https://developer.shotgunsoftware.com/rest-api/#get-upload-url-for-field>
+    /// <https://developer.shotgridsoftware.com/rest-api/#get-upload-url-for-field>
     pub async fn entity_field_upload_url_read<D: 'static>(
         &self,
         entity: &str,
@@ -205,7 +205,7 @@ impl<'sg> Session<'sg> {
         }
 
         let req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/entity/{}/{}/{}/_upload",
                 sg.sg_server, entity, entity_id, field_name
@@ -219,7 +219,7 @@ impl<'sg> Session<'sg> {
 
     /// Provide access to information about an image or attachment field. You can optionally
     /// use the alt query parameter to download the associated image or attachment (maybe...)
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-file-field>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-file-field>
     pub async fn entity_file_field_read(
         &self,
         entity_type: &str,
@@ -230,7 +230,7 @@ impl<'sg> Session<'sg> {
     ) -> Result<FieldHashResponse> {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/entity/{}/{}/{}",
                 sg.sg_server, entity_type, entity_id, field_name
@@ -250,14 +250,14 @@ impl<'sg> Session<'sg> {
     }
 
     /// Provides access to the list of users that follow an entity.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-entity-followers>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-entity-followers>
     pub async fn entity_followers_read<D: 'static>(&self, entity: &str, entity_id: i32) -> Result<D>
     where
         D: DeserializeOwned,
     {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/entity/{}/{}/followers",
                 sg.sg_server, entity, entity_id
@@ -268,7 +268,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Allows a user to follow one or more entities
-    /// <https://developer.shotgunsoftware.com/rest-api/#follow-an-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#follow-an-entity>
     pub async fn entity_follow_update<D: 'static>(
         &self,
         user_id: i32,
@@ -279,7 +279,7 @@ impl<'sg> Session<'sg> {
     {
         let (sg, token) = self.get_sg().await?;
         let request = sg
-            .client
+            .http
             .post(&format!(
                 "{}/api/v1/entity/human_users/{}/follow",
                 sg.sg_server, user_id
@@ -292,7 +292,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Provides access to records related to the current entity record via the entity or multi-entity field.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-record-relationship>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-record-relationship>
     pub fn entity_relationship_read<'a>(
         &'a self,
         entity: &'a str,
@@ -303,7 +303,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Allows a user to unfollow a single entity.
-    /// <https://developer.shotgunsoftware.com/rest-api/#unfollow-an-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#unfollow-an-entity>
     pub async fn entity_unfollow_update<D: 'static>(
         &self,
         user_id: i32,
@@ -315,7 +315,7 @@ impl<'sg> Session<'sg> {
     {
         let (sg, token) = self.get_sg().await?;
         let request = sg
-            .client
+            .http
             .put(&format!(
                 "{}/api/v1/entity/{}/{}/unfollow",
                 sg.sg_server, entity_type, entity_id
@@ -329,7 +329,7 @@ impl<'sg> Session<'sg> {
 
     /// Provides the information for where an upload should be sent and how to connect the upload
     /// to an entity once it has been uploaded.
-    /// <https://developer.shotgunsoftware.com/rest-api/#get-upload-url-for-record>
+    /// <https://developer.shotgridsoftware.com/rest-api/#get-upload-url-for-record>
     pub async fn entity_upload_url_read(
         &self,
         entity: &str,
@@ -344,7 +344,7 @@ impl<'sg> Session<'sg> {
         }
 
         let req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/entity/{}/{}/_upload",
                 sg.sg_server, entity, entity_id
@@ -357,20 +357,20 @@ impl<'sg> Session<'sg> {
     }
 
     /// Apparently this is an internal means for interrogating the navigation
-    /// system in Shotgun.
+    /// system in ShotGrid.
     ///
     /// Undocumented in the Python API, in fact the only mention is in the
     /// changelog from years ago:
-    /// <https://developer.shotgunsoftware.com/python-api/changelog.html?highlight=hierarchy>
+    /// <https://developer.shotgridsoftware.com/python-api/changelog.html?highlight=hierarchy>
     ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#hierarchy-expand>
+    /// <https://developer.shotgridsoftware.com/rest-api/#hierarchy-expand>
     pub async fn hierarchy_expand(
         &self,
         data: HierarchyExpandRequest, // FIXME: callsite ergo
     ) -> Result<HierarchyExpandResponse> {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .post(&format!("{}/api/v1/hierarchy/_expand", sg.sg_server))
             .bearer_auth(token)
             .header("Accept", "application/json")
@@ -379,20 +379,20 @@ impl<'sg> Session<'sg> {
     }
 
     /// Apparently this is an internal means for interrogating the navigation
-    /// system in Shotgun.
+    /// system in ShotGrid.
     ///
     /// Undocumented in the Python API, in fact the only mention is in the
     /// changelog from years ago:
-    /// <https://developer.shotgunsoftware.com/python-api/changelog.html?highlight=hierarchy>
+    /// <https://developer.shotgridsoftware.com/python-api/changelog.html?highlight=hierarchy>
     ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#hierarchy-search>
+    /// <https://developer.shotgridsoftware.com/rest-api/#hierarchy-search>
     pub async fn hierarchy_search(
         &self,
         data: HierarchySearchRequest, // FIXME: callsite ergo
     ) -> Result<HierarchySearchResponse> {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .post(&format!("{}/api/v1/hierarchy/_search", sg.sg_server))
             .bearer_auth(token)
             .header("Accept", "application/json")
@@ -401,14 +401,14 @@ impl<'sg> Session<'sg> {
     }
 
     /// Provides the values of a subset of site preferences.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-preferences>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-preferences>
     pub async fn preferences_read<D: 'static>(&self) -> Result<D>
     where
         D: DeserializeOwned,
     {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .get(&format!("{}/api/v1/preferences", sg.sg_server))
             .bearer_auth(token)
             .header("Accept", "application/json");
@@ -416,7 +416,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Update the last access time of a project by a user.
-    /// <https://developer.shotgunsoftware.com/rest-api/#tocSbatchedrequestsresponse>
+    /// <https://developer.shotgridsoftware.com/rest-api/#tocSbatchedrequestsresponse>
     pub async fn project_last_accessed_update(
         &self,
         project_id: i32,
@@ -424,7 +424,7 @@ impl<'sg> Session<'sg> {
     ) -> Result<ProjectAccessUpdateResponse> {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .put(&format!(
                 "{}/api/v1/entity/projects/{}/_update_last_accessed",
                 sg.sg_server, project_id
@@ -445,7 +445,7 @@ impl<'sg> Session<'sg> {
     {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!("{}/api/v1/entity/{}/{}", sg.sg_server, entity, id))
             .bearer_auth(token)
             .header("Accept", "application/json");
@@ -457,14 +457,14 @@ impl<'sg> Session<'sg> {
         handle_response(req.send().await?).await
     }
     /// Revive an entity.
-    /// <https://developer.shotgunsoftware.com/rest-api/#revive-a-record>
+    /// <https://developer.shotgridsoftware.com/rest-api/#revive-a-record>
     pub async fn revive<D: 'static>(&self, entity: &str, entity_id: i32) -> Result<D>
     where
         D: DeserializeOwned,
     {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .post(&format!(
                 "{}/api/v1/entity/{}/{}?revive=true",
                 sg.sg_server, entity, entity_id
@@ -481,7 +481,7 @@ impl<'sg> Session<'sg> {
     {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!("{}/api/v1/schema", sg.sg_server))
             .bearer_auth(token)
             .header("Accept", "application/json");
@@ -494,7 +494,7 @@ impl<'sg> Session<'sg> {
 
     /// Return schema information for the given entity.
     /// Entity should be a snake cased version of the entity name.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-schema-for-a-single-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-schema-for-a-single-entity>
     pub async fn schema_entity_read(
         &self,
         project_id: Option<i32>,
@@ -502,7 +502,7 @@ impl<'sg> Session<'sg> {
     ) -> Result<SchemaEntityResponse> {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!("{}/api/v1/schema/{}", sg.sg_server, entity))
             .bearer_auth(token)
             .header("Accept", "application/json");
@@ -515,7 +515,7 @@ impl<'sg> Session<'sg> {
 
     /// Return all schema field information for a given entity.
     /// Entity should be a snake cased version of the entity name.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-all-field-schemas-for-an-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-all-field-schemas-for-an-entity>
     pub async fn schema_fields_read(
         &self,
 
@@ -524,7 +524,7 @@ impl<'sg> Session<'sg> {
     ) -> Result<SchemaFieldsResponse> {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!("{}/api/v1/schema/{}/fields", sg.sg_server, entity))
             .bearer_auth(token)
             .header("Accept", "application/json");
@@ -536,7 +536,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Create a new field on the given entity
-    /// <https://developer.shotgunsoftware.com/rest-api/#create-new-field-on-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#create-new-field-on-entity>
     pub async fn schema_field_create<P>(
         &self,
         entity_type: &str,
@@ -552,7 +552,7 @@ impl<'sg> Session<'sg> {
             properties: properties.into_iter().map(Into::into).collect(),
         };
         let req = sg
-            .client
+            .http
             .post(&format!(
                 "{}/api/v1/schema/{}/fields",
                 sg.sg_server, entity_type,
@@ -565,7 +565,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Delete a field on a given entity
-    /// <https://developer.shotgunsoftware.com/rest-api/#delete-one-field-from-an-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#delete-one-field-from-an-entity>
     pub async fn schema_field_delete(&self, entity_type: &str, field_name: &str) -> Result<()> {
         let (sg, token) = self.get_sg().await?;
         let url = format!(
@@ -573,7 +573,7 @@ impl<'sg> Session<'sg> {
             sg.sg_server, entity_type, field_name
         );
         let req = sg
-            .client
+            .http
             .delete(&url)
             .bearer_auth(token)
             .header("Accept", "application/json")
@@ -592,7 +592,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Revive one field from an entity.
-    /// <https://developer.shotgunsoftware.com/rest-api/#revive-one-field-from-an-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#revive-one-field-from-an-entity>
     pub async fn schema_field_revive(&self, entity_type: &str, field_name: &str) -> Result<()> {
         let (sg, token) = self.get_sg().await?;
         let url = format!(
@@ -601,7 +601,7 @@ impl<'sg> Session<'sg> {
         );
 
         let req = sg
-            .client
+            .http
             .post(&url)
             .bearer_auth(token)
             .header("Accept", "application/json")
@@ -621,7 +621,7 @@ impl<'sg> Session<'sg> {
 
     /// Returns schema information about a specific field on a given entity.
     /// Entity should be a snaked cased version of the entity name.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-one-field-schema-for-an-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-one-field-schema-for-an-entity>
     pub async fn schema_field_read(
         &self,
         project_id: Option<i32>,
@@ -630,7 +630,7 @@ impl<'sg> Session<'sg> {
     ) -> Result<SchemaFieldResponse> {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/schema/{}/fields/{}",
                 sg.sg_server, entity, field_name,
@@ -645,7 +645,7 @@ impl<'sg> Session<'sg> {
         handle_response(req.send().await?).await
     }
     /// Update the properties of a field on an entity
-    /// <https://developer.shotgunsoftware.com/rest-api/#revive-one-field-from-an-entity>
+    /// <https://developer.shotgridsoftware.com/rest-api/#revive-one-field-from-an-entity>
     pub async fn schema_field_update<P>(
         &self,
         entity_type: &str,
@@ -662,7 +662,7 @@ impl<'sg> Session<'sg> {
             project_id,
         };
         let req = sg
-            .client
+            .http
             .put(&format!(
                 "{}/api/v1/schema/{}/fields/{}",
                 sg.sg_server, entity_type, field_name
@@ -675,16 +675,18 @@ impl<'sg> Session<'sg> {
 
     /// Find a list of entities matching some filter criteria.
     ///
-    /// Search provides access to the Shotgun filter APIs, serving the same use cases as
-    /// `find` from the Python client API.
+    /// Search provides access to the ShotGrid filter APIs, serving the same use
+    /// cases as `find` from the Python client API.
     ///
-    /// Filters come in 2 flavors, `Array` and `Hash`. These names refer to the shape of the data
-    /// structure the filters are stored in. `Array` is the more simple of the two, and `Hash`
-    /// offers more complex filter operations.
+    /// Filters come in 2 flavors, `Array` and `Hash`. These names refer to the
+    /// shape of the data structure the filters are stored in.
+    ///
+    /// `Array` is the more simple of the two, and `Hash` offers more complex
+    /// filter operations.
     ///
     /// For details on the filter syntax, please refer to the docs:
     ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#searching>
+    /// <https://developer.shotgridsoftware.com/rest-api/#searching>
     pub fn search<'a>(
         &'a self,
         entity: &'a str,
@@ -703,16 +705,16 @@ impl<'sg> Session<'sg> {
     /// query results into buckets.
     ///
     /// ```no_run
-    /// use shotgun_rs::{Shotgun, TokenResponse};
-    /// use shotgun_rs::types::{ResourceArrayResponse, SelfLink};
+    /// use shotgrid_rs::{Client, TokenResponse};
+    /// use shotgrid_rs::types::{ResourceArrayResponse, SelfLink};
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// use shotgun_rs::types::SummaryFieldType;
-    /// use shotgun_rs::filters::{self, field, EntityRef};
+    /// # async fn main() -> shotgrid_rs::Result<()> {
+    /// use shotgrid_rs::types::SummaryFieldType;
+    /// use shotgrid_rs::filters::{self, field, EntityRef};
     ///
-    /// let server = String::from("https://shotgun.example.com");
-    /// let sg = Shotgun::new(server, Some("my-api-user"), Some("********"))?;
+    /// let server = String::from("https://shotgrid.example.com");
+    /// let sg = Client::new(server, Some("my-api-user"), Some("********"))?;
     /// let sess = sg.authenticate_script_as_user("nbabcock").await?;
     ///
     /// let filters = filters::basic(&[
@@ -730,8 +732,8 @@ impl<'sg> Session<'sg> {
     ///
     /// For more on summary queries, see:
     ///
-    /// - <https://developer.shotgunsoftware.com/rest-api/#summarize-field-data>
-    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.summarize>
+    /// - <https://developer.shotgridsoftware.com/rest-api/#summarize-field-data>
+    /// - <https://developer.shotgridsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.summarize>
     pub fn summarize<'a>(
         &'a self,
         entity: &'a str,
@@ -747,7 +749,7 @@ impl<'sg> Session<'sg> {
     /// that fits the search. Rich filters can be used to narrow down searches to entities
     /// that match the filters.
     ///
-    /// The `Shotgun::text_search()` method will prepare and return a
+    /// The `Session::text_search()` method will prepare and return a
     /// `TextSearchBuilder` which can be used to configure some optional aspects
     /// of the process such as setting pagination parameters or sort order.
     ///
@@ -755,14 +757,14 @@ impl<'sg> Session<'sg> {
     ///
     /// ```no_run
     /// use serde_json::Value;
-    /// use shotgun_rs::{Shotgun, TokenResponse};
-    /// use shotgun_rs::types::{ResourceArrayResponse, SelfLink};
-    /// use shotgun_rs::filters::{self, field};
+    /// use shotgrid_rs::{Client, TokenResponse};
+    /// use shotgrid_rs::types::{ResourceArrayResponse, SelfLink};
+    /// use shotgrid_rs::filters::{self, field};
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// let server = String::from("https://shotgun.example.com");
-    /// let sg = Shotgun::new(server, Some("my-api-user"), Some("********"))?;
+    /// # async fn main() -> shotgrid_rs::Result<()> {
+    /// let server = String::from("https://shotgrid.example.com");
+    /// let sg = Client::new(server, Some("my-api-user"), Some("********"))?;
     /// let sess = sg.authenticate_script_as_user("nbabcock").await?;
     ///
     /// let entity_filters = vec![
@@ -785,15 +787,15 @@ impl<'sg> Session<'sg> {
     /// > **Important**: performing text searches requires a `HumanUser` and *not
     /// > an `ApiUser`*.
     /// > Either the access token used must belong to a `HumanUser` or must have
-    /// > been acquired with the "sudo as" `Shotgun::authenticate_script_as_user()`
-    /// > method.
+    /// > been acquired with the "sudo as"
+    /// > [`Client::authenticate_script_as_user()`] method.
     /// >
     /// > Failing to supply a valid `HumanUser` for this operation will get you
-    /// > a `500` response from shotgun, with a 100 "unknown" error code.
+    /// > a `500` response from ShotGrid, with a 100 "unknown" error code.
     ///
     /// For details on the filter syntax, please refer to the docs:
     ///
-    /// <https://developer.shotgunsoftware.com/rest-api/#search-text-entries>
+    /// <https://developer.shotgridsoftware.com/rest-api/#search-text-entries>
     pub fn text_search<'a>(
         &'a self,
         text: Option<&'a str>,
@@ -803,7 +805,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Provides access to the thread content of an entity. Currently only note is supported.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-the-thread-contents-for-a-note>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-the-thread-contents-for-a-note>
     pub async fn thread_contents_read<D: 'static>(
         &self,
         note_id: i32,
@@ -814,7 +816,7 @@ impl<'sg> Session<'sg> {
     {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/entity/notes/{}/thread_contents",
                 sg.sg_server, note_id
@@ -846,7 +848,7 @@ impl<'sg> Session<'sg> {
     {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .put(&format!("{}/api/v1/entity/{}/{}", sg.sg_server, entity, id))
             .bearer_auth(token)
             .header("Accept", "application/json")
@@ -860,7 +862,7 @@ impl<'sg> Session<'sg> {
     }
     /// Upload attachments and thumbnails for a given entity.
     ///
-    /// The `Shotgun::upload()` method will prepare and return a
+    /// The `Session::upload()` method will prepare and return a
     /// `UploadReqBuilder` which can be used to configure some optional aspects
     /// of the process such as linking the upload to tags, or
     /// enabling/configuring multipart support.
@@ -882,8 +884,8 @@ impl<'sg> Session<'sg> {
     ///
     /// ```no_run
     /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// use shotgun_rs::{Shotgun, TokenResponse};
+    /// # async fn main() -> shotgrid_rs::Result<()> {
+    /// use shotgrid_rs::{Client, TokenResponse};
     /// use std::path::PathBuf;
     /// use std::fs::File;
     ///
@@ -892,9 +894,9 @@ impl<'sg> Session<'sg> {
     /// file_path.push(filename);
     /// let file = File::open(&file_path)?;
     ///
-    /// let sg = Shotgun::new(
-    ///     String::from("https://shotgun.example.com"),
-    ///     Some("my-shotgun-api-user"),
+    /// let sg = Client::new(
+    ///     String::from("https://shotgrid.example.com"),
+    ///     Some("my-shotgrid-api-user"),
     ///     Some("**********")
     /// )?;
     ///
@@ -922,17 +924,17 @@ impl<'sg> Session<'sg> {
     ///
     /// ```no_run
     /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// # use shotgun_rs::{Shotgun, TokenResponse};
+    /// # async fn main() -> shotgrid_rs::Result<()> {
+    /// # use shotgrid_rs::{Client, TokenResponse};
     /// # use std::path::PathBuf;
     /// # use std::fs::File;
     /// # let filename = "paranorman-poster.jpg";
     /// # let mut file_path = PathBuf::from("/path/to/posters");
     /// # file_path.push(filename);
     /// # let file = File::open(&file_path)?;
-    /// # let sg = Shotgun::new(
-    /// #     String::from("https://shotgun.example.com"),
-    /// #     Some("my-shotgun-api-user"),
+    /// # let sg = Client::new(
+    /// #     String::from("https://shotgrid.example.com"),
+    /// #     Some("my-shotgrid-api-user"),
     /// #     Some("**********")
     /// # )?;
     /// # let session = sg.authenticate_script().await?;
@@ -953,11 +955,11 @@ impl<'sg> Session<'sg> {
     ///
     /// ```no_run
     /// # #[tokio::main]
-    /// # async fn main() -> shotgun_rs::Result<()> {
-    /// # use shotgun_rs::{Shotgun, TokenResponse};
-    /// # let sg = Shotgun::new(
-    /// #     String::from("https://shotgun.example.com"),
-    /// #     Some("my-shotgun-api-user"),
+    /// # async fn main() -> shotgrid_rs::Result<()> {
+    /// # use shotgrid_rs::{Client, TokenResponse};
+    /// # let sg = Client::new(
+    /// #     String::from("https://shotgrid.example.com"),
+    /// #     Some("my-shotgrid-api-user"),
     /// #     Some("**********")
     /// # )?;
     /// # let session = sg.authenticate_script().await?;
@@ -988,15 +990,15 @@ impl<'sg> Session<'sg> {
     ///
     /// ## Multipart Uploads
     ///
-    /// Multipart uploads are *only available* if your Shotgun instance is
+    /// Multipart uploads are *only available* if your ShotGrid server is
     /// configured to use *AWS S3 storage*. Setting the `multipart` parameter to
-    /// `true` when this not the case will result in a `400` error from Shotgun.
+    /// `true` when this not the case will result in a `400` error from ShotGrid.
     ///
     /// For the times where *S3 storage is in use* you are **required** to set
     /// `multipart` to `true` for files **500Mb or larger**. For files that are
     /// smaller, you may use multipart *at your discretion*.
     ///
-    /// There is currently a bug (**`SG-20292`**) where Shotgun will respond
+    /// There is currently a bug (**`SG-20292`**) where ShotGrid will respond
     /// with a `404` when you attempt to initiate a multipart upload without
     /// also specifying a field name. While it *is legal* to use multipart for
     /// record-level (as opposed to field-level) uploads, it doesn't work today.
@@ -1010,13 +1012,13 @@ impl<'sg> Session<'sg> {
     /// uploads*, but are allowed for attachments.
     ///
     /// Also note that `tags` can cause your upload to fail if you supply an
-    /// invalid tag id, resulting in a `400` error from Shotgun.
+    /// invalid tag id, resulting in a `400` error from ShotGrid.
     ///
     /// # See Also:
     ///
-    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.upload>
-    /// - <https://developer.shotgunsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.upload_thumbnail>
-    /// - <https://developer.shotgunsoftware.com/rest-api/#shotgun-rest-api-Uploading-and-Downloading-Files>
+    /// - <https://developer.shotgridsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.upload>
+    /// - <https://developer.shotgridsoftware.com/python-api/reference.html#shotgun_api3.shotgun.Shotgun.upload_thumbnail>
+    /// - <https://developer.shotgridsoftware.com/rest-api/#shotgrid-rest-api-Uploading-and-Downloading-Files>
     ///
     /// [`File`]: https://doc.rust-lang.org/std/fs/struct.File.html
     /// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
@@ -1031,14 +1033,14 @@ impl<'sg> Session<'sg> {
     }
 
     /// Provides access to the list of entities a user follows.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-user-follows>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-user-follows>
     pub async fn user_follows_read<D: 'static>(&self, user_id: i32) -> Result<D>
     where
         D: DeserializeOwned,
     {
         let (sg, token) = self.get_sg().await?;
         let req = sg
-            .client
+            .http
             .get(&format!(
                 "{}/api/v1/entity/human_users/{}/following",
                 sg.sg_server, user_id
@@ -1050,7 +1052,7 @@ impl<'sg> Session<'sg> {
     }
 
     /// Read the work day rules for each day specified in the query.
-    /// <https://developer.shotgunsoftware.com/rest-api/#read-work-day-rules>
+    /// <https://developer.shotgridsoftware.com/rest-api/#read-work-day-rules>
     pub async fn work_days_rules_read<D: 'static>(
         &self,
         start_date: &str,
@@ -1063,7 +1065,7 @@ impl<'sg> Session<'sg> {
     {
         let (sg, token) = self.get_sg().await?;
         let mut req = sg
-            .client
+            .http
             .get(&format!("{}/api/v1/schedule/work_day_rules", sg.sg_server))
             .query(&[("start_date", start_date), ("end_date", end_date)])
             .bearer_auth(token)
@@ -1144,7 +1146,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let session = sg
             .authenticate_user("nbabcock", "forgot my passwd")
@@ -1174,7 +1176,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let session = sg
             .authenticate_user("nbabcock", "forgot my passwd")
@@ -1204,7 +1206,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let session = sg
             .authenticate_user("nbabcock", "forgot my passwd")
@@ -1234,7 +1236,7 @@ mod mock_tests {
             .mount(&mock_server)
             .await;
 
-        let sg = Shotgun::new(mock_server.uri(), None, None).unwrap();
+        let sg = Client::new(mock_server.uri(), None, None).unwrap();
 
         let session = sg
             .authenticate_user("nbabcock", "forgot my passwd")

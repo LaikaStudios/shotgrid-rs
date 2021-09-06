@@ -3,8 +3,8 @@
 
 use futures::future;
 use serde_json::Value;
-use shotgun_rs::filters::{self, field};
-use shotgun_rs::{Session, Shotgun};
+use shotgrid_rs::filters::{self, field};
+use shotgrid_rs::{Client, Session};
 
 pub fn get_human_user_login() -> String {
     dotenv::dotenv().ok();
@@ -35,12 +35,12 @@ pub fn get_project_id() -> i32 {
         .expect("TEST_SG_PROJECT_ID")
 }
 
-pub fn get_test_client() -> Shotgun {
+pub fn get_test_client() -> Client {
     dotenv::dotenv().ok();
     let sg_server: String = std::env::var("TEST_SG_SERVER").expect("TEST_SG_SERVER");
     let sg_script_name: String = std::env::var("TEST_SG_SCRIPT_NAME").expect("TEST_SG_SCRIPT_NAME");
     let sg_script_key: String = std::env::var("TEST_SG_SCRIPT_KEY").expect("TEST_SG_SCRIPT_KEY");
-    Shotgun::new(sg_server, Some(&sg_script_name), Some(&sg_script_key)).expect("client init")
+    Client::new(sg_server, Some(&sg_script_name), Some(&sg_script_key)).expect("client init")
 }
 
 pub async fn get_api_user_id(sess: &Session<'_>) -> i32 {

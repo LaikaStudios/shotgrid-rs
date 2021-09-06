@@ -10,6 +10,8 @@
 - `ShotgunError` was renamed `Error`.
 - `Client` and `Certificate` are no longer re-exported from the crate root.
   Instead, the entire `reqwest` crate is re-exported under the `transport` module.
+- The name of the client struct `Shotgun` is now known as `Client`.
+- The `Shotgun::with_client()` method is now known as `Client::with_transport()`.
 
 #### Sessions
 
@@ -48,13 +50,13 @@ let _ = sg.search(&norman_token, "Task", /* ...*/)?;
 As of v0.9:
 
 ```rust
-use shotgun_rs::Shotgun;
+use shotgrid_rs::Client;
 
 let server = "https://my-shotgun.example.com";
 let script_name = "my-api-admin";
 let secret = "********";
 
-let sg = Shotgun::new(server.to_string(), Some(script_name), Some(secret))?;
+let sg = Client::new(server.to_string(), Some(script_name), Some(secret))?;
 
 let admin_session = sg.authenticate_script()?;
 let _ = admin_session.create("Task", /* ... */)?;

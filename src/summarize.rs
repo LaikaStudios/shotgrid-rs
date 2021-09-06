@@ -55,7 +55,7 @@ pub struct SummaryData {
     pub groups: Option<Vec<SummaryGroups>>,
 }
 
-/// <https://developer.shotgunsoftware.com/rest-api/#tocSsummarizeresponse>
+/// <https://developer.shotgridsoftware.com/rest-api/#tocSsummarizeresponse>
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SummarizeResponse {
     pub data: SummaryData,
@@ -68,25 +68,25 @@ pub struct SummarizeResponse {
 /// `(AsRef<str>, SummmaryFieldType)`.
 ///
 /// ```
-/// use shotgun_rs::types::SummaryField;
+/// use shotgrid_rs::types::SummaryField;
 ///
-/// # fn main() -> shotgun_rs::Result<()> {
-/// use shotgun_rs::types::SummaryFieldType;
+/// # fn main() -> shotgrid_rs::Result<()> {
+/// use shotgrid_rs::types::SummaryFieldType;
 /// let id_count = SummaryField::from(("id", SummaryFieldType::Count));
 /// let max_due_date: SummaryField = ("due_date", SummaryFieldType::Max).into();
 /// # Ok(())
 /// # }
 /// ```
 ///
-/// When making a call to `Shotgun::summarize()` you may want several
+/// When making a call to [`Session::summarize()`] you may want several
 /// `SummaryField` instances.
 /// For this you can convert a Vec of pairs into a `Vec<SummaryField>` by
 /// doing something like:
 ///
 /// ```
-/// use shotgun_rs::types::{SummaryField, SummaryFieldType};
+/// use shotgrid_rs::types::{SummaryField, SummaryFieldType};
 ///
-/// # fn main() -> shotgun_rs::Result<()> {
+/// # fn main() -> shotgrid_rs::Result<()> {
 /// let summary_fields: Vec<SummaryField> = vec![
 ///     ("id", SummaryFieldType::Count),
 ///     ("due_date", SummaryFieldType::Max),
@@ -173,7 +173,7 @@ pub struct SummaryOptions {
 /// grouping.
 ///
 /// ```
-/// use shotgun_rs::types::{Grouping, GroupingType, GroupingDirection};
+/// use shotgrid_rs::types::{Grouping, GroupingType, GroupingDirection};
 ///
 /// // For 3 element tuples, GroupingDirection can be an "implicit" Option:
 /// // `GroupingDirection::Desc` is the same as `Some(GroupingDirection::Desc)`
@@ -357,7 +357,7 @@ impl<'a> SummarizeReqBuilder<'a> {
         let (sg, token) = self.session.get_sg().await?;
 
         let req = sg
-            .client
+            .http
             .post(&format!(
                 "{}/api/v1/entity/{}/_summarize",
                 sg.sg_server, self.entity
@@ -365,10 +365,10 @@ impl<'a> SummarizeReqBuilder<'a> {
             .header("Accept", "application/json")
             .bearer_auth(token)
             .header("Content-Type", content_type)
-            // XXX: the content type is being set to shotgun's custom mime types
-            //   to indicate the shape of the filter payload. Do not be tempted to use
-            //   `.json()` here instead of `.body()` or you'll end up reverting the
-            //   header set above.
+            // The content type is being set to ShotGrid's custom mime types
+            // to indicate the shape of the filter payload. Do not be tempted to
+            // use `.json()` here instead of `.body()` or you'll end up
+            // reverting the header set above.
             .body(json!(body).to_string());
         handle_response(req.send().await?).await
     }

@@ -1,5 +1,5 @@
 #![cfg(feature = "integration-tests")]
-//! The unfortunate thing for these tests that target an actual shotgun server
+//! The unfortunate thing for these tests that target an actual ShotGrid server
 //! is we can't really assert anything about the records in the database unless
 //! we create those records in the test itself (which we'd rather not do).
 //!
@@ -9,7 +9,7 @@
 //!
 //! These tests depend on several env vars being set.
 //!
-//! - `TEST_SG_SERVER`, the shotgun server to connect to.
+//! - `TEST_SG_SERVER`, the ShotGrid server to connect to.
 //! - `TEST_SG_SCRIPT_NAME`, the name of an ApiUser to connect as.
 //! - `TEST_SG_SCRIPT_KEY`, the API key to go with the name.
 //! - `TEST_SG_HUMAN_USER_LOGIN`, certain tests require a HumanUser so this is
@@ -17,8 +17,8 @@
 //! - `TEST_SG_PROJECT_ID`, some tests require a project to filter by.
 
 use serde_json::{json, Value};
-use shotgun_rs::filters::{self, field, EntityRef};
-use shotgun_rs::types::{
+use shotgrid_rs::filters::{self, field, EntityRef};
+use shotgrid_rs::types::{
     Entity, GroupingDirection, GroupingType, HierarchyEntityFields, HierarchyExpandRequest,
     HierarchySearchCriteria, HierarchySearchRequest, SummaryFieldType,
 };
@@ -203,7 +203,7 @@ async fn e2e_test_text_search() {
         // Text search only works for human users for some reason.
         // Using a "sudo as" user to get around the limitation for now.
         // <https://support.shotgunsoftware.com/hc/en-us/requests/114649>
-        // *(fixed in shotgun v8.16).*
+        // *(fixed in ShotGrid v8.16).*
         .authenticate_script_as_user(&login)
         .await
         .expect("Sudo As auth");
@@ -226,7 +226,7 @@ async fn e2e_test_text_search_empty_filters() {
         // Text search only works for human users for some reason.
         // Using a "sudo as" user to get around the limitation for now.
         // <https://support.shotgunsoftware.com/hc/en-us/requests/114649>
-        // *(fixed in shotgun v8.16).*
+        // *(fixed in ShotGrid v8.16).*
         .authenticate_script_as_user(&login)
         .await
         .expect("Sudo As auth");
@@ -270,7 +270,7 @@ async fn e2e_test_crud_kitchen_sink() {
         .create(
             "Note",
             json!({
-                "subject": "shotgun-rs test",
+                "subject": "shotgrid-rs test",
                 "content": "this is a test",
                 "project": { "type": "Project", "id": project_id }
             }),
@@ -330,7 +330,7 @@ async fn e2e_test_hierarchy_expand() {
 
     let data = HierarchyExpandRequest {
         // Not sure what I can pass as entity fields to change the
-        // response we get from shotgun, but at least the server accepts
+        // response we get from ShotGrid, but at least the server accepts
         // this payload. It just doesn't seem to have any effect.
         entity_fields: Some(vec![HierarchyEntityFields {
             entity: Some("Project".to_string()),

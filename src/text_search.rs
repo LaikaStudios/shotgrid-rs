@@ -103,7 +103,7 @@ impl<'a> TextSearchBuilder<'a> {
 
         let (sg, token) = self.session.get_sg().await?;
         let req = sg
-            .client
+            .http
             .post(&format!("{}/api/v1/entity/_text_search", sg.sg_server))
             .header("Content-Type", content_type)
             .header("Accept", "application/json")
@@ -177,7 +177,7 @@ mod tests {
         let result = get_entity_filters_mime(&filters);
         match result {
             Err(Error::InvalidFilters) => assert!(true),
-            _ => assert!(false, "Expected ShotgunError::InvalidFilters"),
+            _ => assert!(false, "Expected Error::InvalidFilters"),
         }
     }
 
