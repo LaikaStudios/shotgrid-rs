@@ -16,6 +16,8 @@
 - `Session::schema_field_update()` no longer accepts an `UpdateFieldRequest`.
   Instead, it takes separate `properties` and `project_id` parameters.
 - `ShotgunError` was renamed `Error`.
+- Methods that accepted `serde_json::Value` to represent filter data have been
+  updated to use a new Filters API (more below).
 
 #### Sessions
 
@@ -71,6 +73,39 @@ let _ = admin_session.create("Task", /* ... */)?;
 let norman_session = sg.authenticate_script_as_user("nbabcock")?;
 let _ = norman_session.search("Task", /* ...*/)?;
 ```
+
+#### Filters
+
+ShotGrid offers a system for filtering queries using clauses consisting of:
+
+- a field name
+- a comparator
+- value or values to compare to each record in the query
+
+These clauses can be combined in different ways, but are beholden to some
+structural rules. Additionally, some comparators are more restrictive about the
+types of values they will accept.
+
+In v0.9 a new Filter API is introduced to help ensure these rules are respected
+_at compile time_.
+
+Here's what this API looks like:
+
+```rust
+use shotgrid_rs::filters::{self, field, EntityRef};
+
+let task_filters = filters::basic(&[
+    field("due_date").in_calendar_month(0),
+    field("entity").is(EntityRef::new("Asset", 1234)),
+    field("project.Project.id").in_(&[1, 2, 3]),
+    field("sg_status_list").is_not("apr"),
+]);
+```
+
+Clauses are defined starting with a `field()` constructor which offers
+comparators as _methods_, each typed in terms of their own requirements.
+
+Check the `shotgrid_rs::filters` documentation for more details.
 
 #### Builders
 
