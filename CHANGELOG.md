@@ -1,25 +1,31 @@
-# (Unreleased)
-
+# ([Unreleased](https://github.com/LaikaStudios/shotgrid-rs/compare/v0.8.3...main))
 
 ### Breaking Changes
 
-- `Shotgun::schema_field_create()` no longer accepts a `CreateFieldRequest`.
-  Instead, it takes separate `data_type` and `properties` parameters.
-- `Shotgun::schema_field_update()` no longer accepts an `UpdateFieldRequest`.
-  Instead, it takes separate `properties` and `project_id` parameters.
-- `ShotgunError` was renamed `Error`.
+- The crate name has changed! With the rebranding of Shotgun as ShotGrid, the
+  crate name now reflects this. `shotgun-rs` is now `shotgrid-rs`.
 - `Client` and `Certificate` are no longer re-exported from the crate root.
   Instead, the entire `reqwest` crate is re-exported under the `transport` module.
 - The name of the client struct `Shotgun` is now known as `Client`.
 - The `Shotgun::with_client()` method is now known as `Client::with_transport()`.
+- Many methods that were formerly available via the `Shotgun` struct (now
+  `Client`) are now provided by the new `Session` type (more details on this
+  below).
+- `Session::schema_field_create()` no longer accepts a `CreateFieldRequest`.
+  Instead, it takes separate `data_type` and `properties` parameters.
+- `Session::schema_field_update()` no longer accepts an `UpdateFieldRequest`.
+  Instead, it takes separate `properties` and `project_id` parameters.
+- `ShotgunError` was renamed `Error`.
 
 #### Sessions
 
-Earlier versions of the API had *all the methods* for talking to Shotgun attached
-to the `Shotgun` struct. Methods requiring authentication required the caller to
-supply a token (provided by an earlier call to one of the *authenticate_* methods).
+Earlier versions of the API had *all the methods* for talking to the server
+attached to a `Shotgun` (renamed to `Client`) struct.
 
-By encapsulating some of the authentication handling in a new `Session` type,
+Methods requiring authentication required the caller to supply a token (provided
+by an earlier call to one of the *authenticate_* methods).
+
+By encapsulating authentication handling in a new `Session` type,
 this gives us a way to:
 
 - Ensure via the type system that code that goes through an initial authentication
@@ -73,11 +79,11 @@ A number of methods have been updated to use the
 to streamline usage by allowing the caller to skip setting parameters that have
 well-understood defaults available.
 
-- `Shotgun::text_search()` now returns a `TextSearchBuilder`.
-- `Shotgun::summarize()` now returns a `SummarizeReqBuilder`.
+- `Session::text_search()` now returns a `TextSearchBuilder`.
+- `Session::summarize()` now returns a `SummarizeReqBuilder`.
   - The return value from `SummarizeReqBuilder` is not generic like the old
-    `Shotgun::summarize()` method was, instead returning a `SummarizeResponse`.
-- `Shotgun::entity_relationship_read()` now returns a (you guessed it)
+    `Session::summarize()` method was, instead returning a `SummarizeResponse`.
+- `Session::entity_relationship_read()` now returns a (you guessed it)
   `EntityRelationshipReadReqBuilder`.
 
 
@@ -86,16 +92,15 @@ well-understood defaults available.
 - A new `types` module for structs/enums to represent the request/response
   bodies for the Shotgun REST API (based on the OpenApi spec, but lightly
   modified to match reality).
-- Added methods to `Shotgun` to represent all endpoints listed in the Shotgun
-  OpenApi spec.
-- A high-level `Shotgun::upload()` supporting both Shotgun and S3 storage
+- Added methods to represent all endpoints listed in the OpenApi spec.
+- A high-level `Session::upload()` supporting both Shotgun and S3 storage
   services.
-- `From` impls added for `CreateUpdateFieldProperty`, `SummaryField`, and `Grouping` so they can be
-  conveniently built from tuples.
+- `From` impls added for `CreateUpdateFieldProperty`, `SummaryField`, and
+  `Grouping` so they can be conveniently built from tuples.
 
 ### Fixed
 
-- `Shotgun::text_search()` no longer panics if given an empty map of entity
+- `Session::text_search()` no longer panics if given an empty map of entity
   filters.
 
 
